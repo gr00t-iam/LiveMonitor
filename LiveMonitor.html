@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Tech Monitor · Command Suite (Fixed)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *{box-sizing:border-box;margin:0}
+    html{overflow-y:scroll}
+    body{font-family:'Inter',sans-serif;background:radial-gradient(circle at 10% 20%,#13202e,#0b1219);color:#eef2fb;margin:0;min-height:100vh;padding:16px;display:flex;gap:16px;line-height:1.4;font-size:14px}
+    .glass-panel{background:rgba(20,30,44,.75);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(71,148,255,.15);box-shadow:0 12px 24px -8px #00000080,0 0 0 1px rgba(59,130,246,.1) inset}
+    #sidebar{width:300px;padding:16px 14px;border-radius:24px;height:fit-content;max-height:calc(100vh - 32px);overflow-y:auto;position:sticky;top:16px}
+    #main-content{flex:1;min-width:0}
+    .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9999;visibility:hidden;opacity:0;transition:.2s}
+    .modal-overlay.show{visibility:visible;opacity:1}
+    .modal-card{background:#1e2b3c;padding:24px;border-radius:28px;width:340px;box-shadow:0 30px 50px #00000055;border:1px solid #3b82f6;text-align:center}
+    .modal-card h3{margin-bottom:20px;font-weight:500}
+    .modal-card input,.modal-card select,.modal-card textarea{width:100%;padding:12px 14px;background:#0f1a24;border:1px solid #2d4055;border-radius:30px;color:white;font-size:.95rem;margin-bottom:16px;outline:none}
+    .login-btn{flex:1;padding:10px;border-radius:30px;border:none;font-weight:600;cursor:pointer;background:#3b82f6;color:white}
+    .login-btn.secondary{background:#334155}
+    .admin-toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#0f1a27;border-radius:40px;margin-bottom:20px;border:1px solid #2a3c52;cursor:pointer;font-weight:500;font-size:.9rem}
+    .locked .admin-hide{display:none !important}
+    .current-user{background:#1e3a5f;padding:8px 14px;border-radius:30px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between}
+    .staff-login-btn,.staff-logout-btn{background:#a855f7;border:none;color:white;border-radius:20px;padding:4px 12px;font-size:.7rem;cursor:pointer;margin-left:6px}
+    .staff-logout-btn{background:#b91c1c}
+    .roster-section{margin-bottom:18px}
+    .section-title{font-weight:600;font-size:.9rem;margin-bottom:8px;display:flex;align-items:center;gap:6px;opacity:.9}
+    .roster-list{margin:8px 0}
+    .roster-item{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#0f1e2b;border-radius:30px;margin-bottom:6px;border:1px solid #2e4258;font-size:.85rem}
+    .add-tech{display:flex;gap:6px;margin-top:8px}
+    .add-tech input{flex:1;background:#0f1e2b;border:1px solid #2e4258;border-radius:30px;padding:8px 12px;color:white;font-size:.85rem}
+    .icon-btn{background:#3b82f6;border:none;border-radius:30px;padding:0 16px;color:white;font-weight:bold;font-size:1.2rem;cursor:pointer}
+    #team-summary{display:flex;justify-content:space-around;padding:12px 16px;border-radius:24px;margin-bottom:16px;background:rgba(15,30,45,.7);backdrop-filter:blur(6px);border:1px solid #2e4b6b}
+    .stat-box{text-align:center}
+    .stat-val{font-size:1.8rem;font-weight:700;letter-spacing:-.5px}
+    .stat-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;opacity:.7}
+    #current-clock{font-size:1.3rem;font-weight:600;background:#0e1c28;padding:4px 18px;border-radius:40px;display:inline-block;border:1px solid #3b82f6;color:#90caf9;font-family:Inter,monospace}
+    .monitor-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px;margin:16px 0 20px}
+    .tech-card{background:rgba(18,30,44,.8);backdrop-filter:blur(6px);border-radius:24px;padding:16px 16px 14px;border:1px solid #304a66;box-shadow:0 8px 20px -6px #00000080;transition:all .2s;position:relative}
+    .tech-card.warning-update{border:2px solid #facc15;background:rgba(74,63,14,.55)}
+    .tech-card.critical-update{border:2px solid #f97316;background:rgba(95,47,14,.58)}
+    .tech-card.on-break{border:2px solid #fbbf24;background:rgba(50,40,20,.7)}
+    .tech-card.has-issue{border-left:6px solid #f97316;background:rgba(60,30,20,.6)}
+    .tech-card.overdue{border:2px solid #ef4444 !important;background:rgba(80,30,30,.5)}
+    .tech-card.shift-complete{box-shadow:0 0 0 2px rgba(217,70,239,.45) inset,0 12px 24px -8px rgba(168,85,247,.35);background:rgba(56,22,68,.58)}
+    .tech-card h3{font-weight:600;font-size:1.2rem;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+    .close-card{position:absolute;top:10px;right:14px;background:none;border:none;color:#f87171;font-size:1.4rem;cursor:pointer;opacity:.9;padding:2px}
+    .close-card:hover{color:#ef4444}
+    .timer-section{margin:8px 0 6px}
+    .update-timer{font-size:2.2rem;font-weight:700;font-family:Inter,monospace;letter-spacing:2px;background:#0e1a26;padding:4px 8px;border-radius:40px;text-align:center;border:1px solid #3b82f655;min-width:140px;display:inline-block;width:100%}
+    .progress-container{height:7px;background:#0b1722;border-radius:20px;margin:12px 0 4px;overflow:hidden}
+    .progress-bar{height:100%;width:0;background:linear-gradient(90deg,#a855f7,#6366f1);border-radius:20px}
+    .progress-bar.overtime{background:#ef4444}
+    .ticket-btn{background:#b45309;color:white;border:none;border-radius:20px;padding:6px 10px;font-size:.7rem;cursor:pointer;margin-right:6px}
+    .issue-badge{background:#7f1d1d;color:#fca5a5;padding:4px 8px;border-radius:20px;font-size:.7rem;margin:6px 0}
+    .note-input{width:100%;padding:8px 12px;background:#0f212f;border:1px solid #365573;border-radius:30px;color:white;margin-bottom:10px;font-size:.8rem}
+    .btn-group{display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap}
+    .btn{padding:8px 4px;border-radius:30px;border:none;font-weight:600;cursor:pointer;flex:1 0 calc(50% - 5px);font-size:.75rem;transition:.15s;min-width:70px}
+    .update-btn{background:#3b82f6;color:white}
+    .begin-btn{background:#10b981;color:white}
+    .break-btn{background:#f59e0b;color:white}
+    .end-btn{background:#ef4444;color:white}
+    .resolve-btn{background:#15803d;color:white}
+    .activity-log,.status-overview{background:rgba(12,26,38,.7);backdrop-filter:blur(6px);border-radius:20px;padding:14px 16px;margin-top:8px;border:1px solid #2c506e}
+    .log-content{height:140px;overflow-y:auto;font-size:.75rem;font-family:'SF Mono',monospace;padding-right:4px}
+    .log-entry{padding:5px 0;border-bottom:1px solid #2c4b66;display:flex;align-items:center;flex-wrap:wrap}
+    .focus-issue-btn{background:none;border:none;color:#f87171;cursor:pointer;font-size:.8rem;margin-left:auto}
+    .status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+    .status-item{background:#0f1e2b;border-radius:30px;padding:10px 14px;border:1px solid #3a5a7a}
+    .status-header{display:flex;align-items:center;gap:8px}
+    .status-indicator{width:12px;height:12px;border-radius:50%;background:#64748b}
+    .status-indicator.active{background:#10b981}
+    .status-indicator.inactive{background:#ef4444}
+    .status-indicator.idle{background:#94a3b8}
+    .status-indicator.break{background:#f59e0b}
+    .status-indicator.issue{background:#f97316}
+    .issue-detail{font-size:.7rem;opacity:.8;margin-top:6px;padding-left:20px}
+    .analytics-row{display:flex;gap:14px;margin-top:16px}
+    .chart-box{background:#0f212f;padding:10px;border-radius:20px;border:1px solid #2b4a66;backdrop-filter:blur(4px);height:180px}
+    .chart-box canvas{width:100% !important;height:100% !important}
+    .small-btn{background:#2a4058;border:none;color:white;padding:7px 10px;border-radius:30px;font-size:.7rem;cursor:pointer}
+    .backup-btns{margin-top:16px;display:flex;gap:6px;flex-wrap:wrap}
+    .toolbar-row{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:12px 0 0;flex-wrap:wrap}
+    .toolbar-row select{background:#0f1e2b;border:1px solid #365573;border-radius:20px;color:white;padding:8px 12px}
+    .secondary-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:0 0 16px}
+    .secondary-stat{background:rgba(15,30,45,.7);border:1px solid #2e4b6b;border-radius:18px;padding:10px 12px}
+    .secondary-stat .label{display:block;font-size:.68rem;opacity:.72;text-transform:uppercase}
+    .secondary-stat .value{display:block;font-size:1.2rem;font-weight:700;margin-top:3px}
+    .manual-time-row{display:flex;align-items:center;gap:6px;margin-top:6px;background:#0f1e2b;padding:6px 10px;border-radius:30px}
+    .manual-time-row span{font-size:.7rem;opacity:.7}
+    .manual-time-row input{flex:1;background:#1a2c3f;border:1px solid #3a5a7a;border-radius:20px;color:white;padding:6px 10px;font-size:.75rem}
+    .manual-time-row button{background:#2a4058;border:none;border-radius:20px;padding:6px 12px;font-size:.7rem;color:white;cursor:pointer}
+    .manual-time-row button:disabled{opacity:.5;cursor:not-allowed}
+    .notes-panel{margin:8px 0 10px;background:#0c1823;border:1px solid #27405b;border-radius:18px;padding:10px}
+    .notes-list{max-height:86px;overflow:auto;font-size:.72rem;margin-bottom:8px}
+    .note-entry{padding:5px 0;border-bottom:1px solid rgba(79,129,173,.25)}
+    .note-entry:last-child{border-bottom:none}
+    .note-meta{opacity:.65;font-size:.66rem}
+    .hidden-tray{margin-top:8px;padding:12px 14px;border-radius:20px;background:rgba(12,26,38,.7);border:1px solid #2c506e}
+    .hidden-chip-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .hidden-chip{display:flex;align-items:center;gap:8px;background:#0f1e2b;border:1px solid #35526f;border-radius:999px;padding:8px 12px}
+    .hidden-chip button{background:#1d4ed8;border:none;color:white;border-radius:999px;padding:5px 10px;font-size:.7rem;cursor:pointer}
+    .drawer-card{background:#142131;padding:20px;border-radius:24px;width:min(680px,92vw);max-height:85vh;overflow:auto;box-shadow:0 30px 50px #00000055;border:1px solid #3b82f6}
+    .history-list{margin-top:14px}
+    .history-item{padding:10px 0;border-bottom:1px solid #264562;font-size:.82rem}
+    .settings-stack{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+    .settings-pill{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:#0f1e2b;border:1px solid #31506c;border-radius:18px;font-size:.78rem}
+    .settings-pill input{accent-color:#3b82f6}
+    .report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;text-align:left}
+    .report-grid label{font-size:.78rem;opacity:.8}
+    .report-grid input,.report-grid select{width:100%;margin-top:5px;padding:10px 12px;background:#0f1a24;border:1px solid #2d4055;border-radius:18px;color:white}
+    .command-view .tech-card{padding:20px 20px 18px;border-radius:28px}
+    .command-view .btn{font-size:.9rem;padding:12px 10px}
+    .command-view .ticket-btn,.command-view .small-btn,.command-view .manual-time-row button{font-size:.82rem;padding:10px 14px}
+    .command-view .update-timer{font-size:2.5rem}
+    @media (max-width: 900px){
+      body{flex-direction:column}
+      #sidebar{width:100%;position:static;max-height:none}
+      .analytics-row{flex-direction:column}
+    }
+    @media (max-width: 640px){
+      .btn{flex:1 0 100%}
+      .report-grid{grid-template-columns:1fr}
+    }
+    .admin-badge{background:#3b82f6;color:white;padding:2px 8px;border-radius:30px;font-size:.65rem;margin-left:8px}
+    .permission-warning{background:#7f1d1d;color:#fca5a5;padding:8px 12px;border-radius:20px;margin:12px 0;font-size:.8rem;display:none}
+    .locked .admin-hide{display:none !important}
+    hr{border:.5px solid #2e4b6b;margin:12px 0}
+    ::-webkit-scrollbar{width:4px}
+    ::-webkit-scrollbar-thumb{background:#3b6e9f;border-radius:10px}
+  </style>
+</head>
+<body>
+  <div class="modal-overlay" id="adminLoginModal"><div class="modal-card"><h3><i class="fas fa-lock"></i> Admin Auth</h3><input type="password" id="adminPassword" placeholder="Enter admin password"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeAdminModal()">Cancel</button><button class="login-btn" onclick="window.verifyAdmin()">Unlock</button></div><p id="adminError" style="color:#f87171"></p></div></div>
+  <div class="modal-overlay" id="staffLoginModal"><div class="modal-card"><h3><i class="fas fa-user-shield"></i> Staff Login</h3><select id="staffSelect"></select><input type="password" id="staffPassword" placeholder="Password" value="1234"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeStaffModal()">Cancel</button><button class="login-btn" onclick="window.verifyStaffLogin()">Login</button></div><p id="staffError" style="color:#f87171"></p></div></div>
+  <div class="modal-overlay" id="issueModal"><div class="modal-card"><h3><i class="fas fa-ticket-alt"></i> Trouble Ticket</h3><textarea id="issueDescription" rows="2" placeholder="Describe the issue..."></textarea><input type="hidden" id="issueTechIndex"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeIssueModal()">Cancel</button><button class="login-btn" style="background:#b45309" onclick="window.submitIssue()">Create Ticket</button></div></div></div>
+  <div class="modal-overlay" id="resolveModal"><div class="modal-card"><h3><i class="fas fa-check-circle"></i> Resolve Ticket</h3><p id="resolveIssueDesc"></p><textarea id="resolutionNotes" rows="2" placeholder="Resolution notes..."></textarea><input type="hidden" id="resolveTechIndex"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeResolveModal()">Cancel</button><button class="login-btn" style="background:#15803d" onclick="window.submitResolution()">Resolve</button></div></div></div>
+  <div class="modal-overlay" id="passwordModal"><div class="modal-card"><h3><i class="fas fa-key"></i> Change Password</h3><p id="passwordStaffName"></p><input type="password" id="newPassword" placeholder="New password"><input type="hidden" id="passwordStaffIndex"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closePasswordModal()">Cancel</button><button class="login-btn" onclick="window.savePassword()">Save</button></div></div></div>
+  <div class="modal-overlay" id="historyModal"><div class="drawer-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3 id="historyTitle"><i class="fas fa-history"></i> Technician History</h3><button class="small-btn" onclick="window.closeHistoryModal()">Close</button></div><div id="historyMeta" style="margin-top:6px;opacity:.72;font-size:.8rem"></div><div id="historyContent" class="history-list"></div></div></div>
+  <div class="modal-overlay" id="reportModal"><div class="modal-card" style="width:min(520px,92vw);text-align:left"><h3><i class="fas fa-file-export"></i> Export Report</h3><div class="report-grid"><div><label for="reportStart">Start date</label><input type="date" id="reportStart"></div><div><label for="reportEnd">End date</label><input type="date" id="reportEnd"></div><div style="grid-column:1 / -1"><label for="reportTech">Technician</label><select id="reportTech"></select></div></div><div style="display:flex;gap:10px;margin-top:18px"><button class="login-btn secondary" onclick="window.closeReportModal()">Cancel</button><button class="login-btn" style="background:#8b5cf6" onclick="window.downloadPDFReport()"><i class="fas fa-file-pdf"></i> Export PDF</button></div></div></div>
+  <div id="sidebar" class="glass-panel">
+    <div class="admin-toggle" onclick="window.handleAdminToggle()"><span><i class="fas fa-shield-alt"></i> <span id="lock-label">Admin Unlocked</span></span><span><i class="fas fa-chevron-right"></i></span></div>
+    <div class="permission-warning" id="permissionWarning">Admin locked, no staff login. Click toggle to unlock or login as staff.</div>
+    <div class="current-user"><span><i class="fas fa-user"></i> <span id="currentStaffDisplay">Not logged in</span></span><span><button class="staff-login-btn" onclick="window.openStaffLogin()" id="loginBtn">Login</button><button class="staff-logout-btn" onclick="window.logoutStaff()" id="logoutBtn" style="display:none">Logout</button></span></div>
+    <div class="roster-section"><div class="section-title"><i class="fas fa-tools"></i> Technician Roster</div><div id="tech-roster-list" class="roster-list"></div><div class="add-tech admin-hide" id="add-tech-container"><input type="text" id="new-tech-name" placeholder="Add technician..."><button class="icon-btn" onclick="window.addNewTech()"><i class="fas fa-plus"></i></button></div></div>
+    <div class="roster-section"><div class="section-title"><i class="fas fa-headset"></i> Command Center</div><div id="command-roster-list" class="roster-list"></div><div class="add-tech admin-hide"><input type="text" id="new-command-name" placeholder="Add command staff..."><button class="icon-btn" onclick="window.addCommandStaff()"><i class="fas fa-plus"></i></button></div></div>
+    <hr>
+    <div class="backup-btns admin-hide"><button class="small-btn" onclick="window.exportData()"><i class="fas fa-download"></i> Backup</button><button class="small-btn" onclick="document.getElementById('importFile').click()"><i class="fas fa-upload"></i> Restore</button><input type="file" id="importFile" style="display:none" accept=".json" onchange="window.importData(event)"><button class="small-btn" onclick="window.runDailyReset(true)" style="background:#0f766e"><i class="fas fa-calendar-day"></i> Daily Reset</button><button class="small-btn" onclick="window.clearLog()" style="background:#b91c1c"><i class="fas fa-trash"></i> Clear</button></div>
+    <div class="roster-section">
+      <div class="section-title"><i class="fas fa-sliders-h"></i> Display & Alerts</div>
+      <div class="settings-stack">
+        <label class="settings-pill"><span>Command view</span><input type="checkbox" id="commandViewToggle" onchange="window.toggleCommandView(this.checked)"></label>
+        <label class="settings-pill"><span>Sound alerts</span><input type="checkbox" id="soundToggle" onchange="window.toggleSoundAlerts(this.checked)"></label>
+        <label class="settings-pill"><span>Browser notifications</span><input type="checkbox" id="notificationToggle" onchange="window.toggleNotifications(this.checked)"></label>
+      </div>
+    </div>
+  </div>
+  <div id="main-content">
+    <div id="team-summary" class="glass-panel"><div class="stat-box"><span class="stat-val" id="count-active">0</span><span class="stat-label">Active on shift</span></div><div class="stat-box"><span class="stat-val" id="count-due" style="color:#f87171">0</span><span class="stat-label">Overdue updates</span></div></div>
+    <div class="secondary-summary" id="secondary-summary-row"><div class="secondary-stat"><span class="label">On Shift</span><span class="value" id="summary-onshift">0</span></div><div class="secondary-stat"><span class="label">On Break</span><span class="value" id="summary-break">0</span></div><div class="secondary-stat"><span class="label">Off Shift</span><span class="value" id="summary-offshift">0</span></div><div class="secondary-stat"><span class="label">Not Started</span><span class="value" id="summary-notstarted">0</span></div><div class="secondary-stat"><span class="label">Tickets Open</span><span class="value" id="summary-tickets">0</span></div></div>
+    <div class="glass-panel" style="padding:14px 16px;margin-bottom:16px"><header style="display:flex;justify-content:space-between;align-items:center"><h2><i class="fas fa-desktop"></i> Live Monitor</h2><div id="current-clock">------</div></header></div>
+    <div class="toolbar-row"><div style="display:flex;align-items:center;gap:8px"><label for="sort-mode" style="opacity:.78">Sort cards</label><select id="sort-mode" onchange="window.setSortMode(this.value)"><option value="overdue">Overdue first</option><option value="alpha">Alphabetical</option><option value="shift">Shift progress</option></select></div><div style="display:flex;gap:8px"><button class="small-btn" onclick="window.openReportModal()"><i class="fas fa-file-export"></i> Export Filtered Report</button></div></div>
+    <div class="monitor-grid" id="monitor-grid"></div>
+    <div class="hidden-tray" id="hidden-tray" style="display:none"><div style="display:flex;align-items:center;gap:8px"><i class="fas fa-eye-slash"></i><strong>Hidden Technician Cards</strong></div><div id="hidden-tray-list" class="hidden-chip-list"></div></div>
+    <div class="status-overview"><div style="display:flex;align-items:center;gap:8px"><i class="fas fa-clipboard-list"></i><strong>Technician Status Overview</strong></div><div id="status-overview-grid" class="status-grid"></div></div>
+    <div id="activity-log" class="glass-panel"><div style="display:flex;justify-content:space-between"><strong><i class="far fa-list-alt"></i> Activity</strong><button class="small-btn" onclick="window.openReportModal()" style="background:#8b5cf6"><i class="fas fa-file-pdf"></i> PDF</button></div><div id="log-content" class="log-content"></div></div>
+    <div class="analytics-row"><div class="chart-box" style="flex:2"><canvas id="productivityChart"></canvas></div><div class="chart-box" style="flex:1"><canvas id="statusPieChart"></canvas></div></div>
+  </div>
+  <script>
+    const UPDATEDUR = 2 * 60 * 60 * 1000;
+    const SHIFTDUR = 8 * 60 * 60 * 1000;
+    const DEFAULT_ADMIN_PASSWORD = 'Dr4g0nB100d';
+    const STAFFDEFAULTPASS = '1234';
+    const SUPABASE_URL = 'https://nclsuojjzxgohgxhddqz.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_NfpTF1-kiRCmYWYAjWaKGQ_BRBZu1UB';
+    const SUPABASE_STATE_TABLE = 'shared_dashboard_state';
+    const SUPABASE_STATE_ROW = 'main';
+    let techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked = false, currentStaff = null;
+    let prodChart = null, pieChart = null, alertPlayed = {}, shiftAlertPlayed = {};
+    let supabaseClient = null, supabaseChannel = null, syncReady = false, isApplyingRemoteState = false, syncTimer = null;
+    const alertSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+    const shiftAlertSound = new Audio('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg');
+
+    function currentDateKey(d=new Date()){ return d.toISOString().slice(0,10); }
+    function defaultUiPrefs(){ return {sortMode:'overdue',commandView:false,soundEnabled:true,notificationsEnabled:false}; }
+    function normalizeTech(t){
+      return {
+        name:t.name,
+        shiftStart:t.shiftStart||null,
+        lastUpdate:t.lastUpdate||null,
+        active:t.active!==false,
+        cardVisible:t.cardVisible!==false,
+        shiftEnded:!!t.shiftEnded,
+        note:t.note||'',
+        noteEntries:Array.isArray(t.noteEntries)?t.noteEntries:[],
+        onBreak:!!t.onBreak,
+        activeIssue:t.activeIssue||null,
+        issueResolved:t.issueResolved||null
+      };
+    }
+    function serializeState(){ return {techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked, currentStaff}; }
+    function saveLocalState(){ localStorage.setItem('techMonitorData', JSON.stringify(serializeState())); }
+    function scheduleSupabaseSync(){ if(!syncReady || isApplyingRemoteState) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>window.syncStateToSupabase(), 300); }
+    function save(){ saveLocalState(); scheduleSupabaseSync(); }
+    function applyStateSnapshot(data){
+      techs=(data.techs||[]).map(normalizeTech);
+      commandStaff=data.commandStaff||['Sarah Chen','Mike Ross','Jeremy Miller'];
+      staffPasswords=data.staffPasswords||{};
+      staffRoles=data.staffRoles||{'Jeremy Miller':'admin'};
+      activityLog=data.activityLog||[];
+      masterArchive=data.masterArchive||[];
+      dailyArchives=data.dailyArchives||{};
+      uiPrefs={...defaultUiPrefs(),...(data.uiPrefs||{})};
+      adminPassword=data.adminPassword||DEFAULT_ADMIN_PASSWORD;
+      lastResetDate=data.lastResetDate||currentDateKey();
+      adminLocked=!!data.adminLocked;
+      currentStaff=data.currentStaff||null;
+    }
+    function setDefaults(){
+      techs=[{name:'Aaron Gonzales',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null},{name:'Ayo David',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null},{name:'Josh Carsten',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null}];
+      commandStaff=['Sarah Chen','Mike Ross','Jeremy Miller'];
+      staffPasswords={'Sarah Chen':STAFFDEFAULTPASS,'Mike Ross':STAFFDEFAULTPASS,'Jeremy Miller':STAFFDEFAULTPASS};
+      staffRoles={'Sarah Chen':'staff','Mike Ross':'staff','Jeremy Miller':'admin'};
+      activityLog=[]; masterArchive=[]; dailyArchives={}; uiPrefs=defaultUiPrefs(); adminPassword=DEFAULT_ADMIN_PASSWORD; lastResetDate=currentDateKey(); adminLocked=false; currentStaff=null; save();
+    }
+    function loadFromStorage(){
+      const saved=localStorage.getItem('techMonitorData');
+      if(saved){try{applyStateSnapshot(JSON.parse(saved))}catch(e){setDefaults()}} else setDefaults();
+      commandStaff=Array.from(new Set([...(commandStaff||[]),'Jeremy Miller']));
+      staffRoles['Jeremy Miller']='admin';
+      if(!staffPasswords['Jeremy Miller']) staffPasswords['Jeremy Miller']=STAFFDEFAULTPASS;
+      if(!activityLog) activityLog=[]; if(!masterArchive) masterArchive=[]; if(!dailyArchives) dailyArchives={}; if(!uiPrefs) uiPrefs=defaultUiPrefs(); if(!adminPassword) adminPassword=DEFAULT_ADMIN_PASSWORD;
+      techs=techs.map(normalizeTech);
+      saveLocalState();
+    }
+    function formatDiff(ms){if(ms==null||isNaN(ms)) return '------'; const sign=ms<0?'-':''; const abs=Math.abs(ms); const h=String(Math.floor(abs/3600000)).padStart(2,'0'); const m=String(Math.floor(abs%3600000/60000)).padStart(2,'0'); const s=String(Math.floor(abs%60000/1000)).padStart(2,'0'); return sign + h+':'+m+':'+s}
+    function parseTimeString(s){ if(!s) return null; let d=new Date(); let m=s.trim().match(/^(\d{1,2}):(\d{2})$/); if(m){d.setHours(parseInt(m[1]),parseInt(m[2]),0,0); if(d>new Date()) d.setDate(d.getDate()-1); return d;} m=s.trim().match(/^(\d{1,2}):(\d{2})\s*([aApP][mM])$/); if(m){let h=parseInt(m[1]), mn=parseInt(m[2]); const ap=m[3].toUpperCase(); if(ap==='PM' && h<12) h+=12; if(ap==='AM' && h===12) h=0; d.setHours(h,mn,0,0); if(d>new Date()) d.setDate(d.getDate()-1); return d;} return null; }
+    function hasAdminRights(){return !adminLocked || staffRoles[currentStaff]==='admin'}
+    function checkPermission(requireAdmin=false){ if(requireAdmin){ if(!hasAdminRights()){ alert('This action requires Admin rights. Unlock the system or login as an Admin staff member.'); return false; } return true; } if(adminLocked && !currentStaff){ alert('Action requires login or unlock admin.'); return false; } return true; }
+    function applyLockClass(){ document.body.classList.toggle('locked', adminLocked); const lb=document.getElementById('lock-label'), warn=document.getElementById('permissionWarning'), addTechContainer=document.getElementById('add-tech-container'); if(lb) lb.innerText=adminLocked?'Admin Locked':'Admin Unlocked'; if(warn) warn.style.display=adminLocked && !currentStaff ? 'block':'none'; if(addTechContainer) addTechContainer.style.display=(currentStaff && !adminLocked)?'flex':'none'; }
+    function updateStaffUI(){ const d=document.getElementById('currentStaffDisplay'), lb=document.getElementById('loginBtn'), ob=document.getElementById('logoutBtn'), warn=document.getElementById('permissionWarning'), addTechContainer=document.getElementById('add-tech-container'); if(d) d.innerText=currentStaff ? currentStaff + (staffRoles[currentStaff]==='admin'?' · Admin':'') : 'Not logged in'; if(lb) lb.style.display=currentStaff?'none':'inline-block'; if(ob) ob.style.display=currentStaff?'inline-block':'none'; if(warn) warn.style.display=adminLocked && !currentStaff ? 'block':'none'; if(addTechContainer) addTechContainer.style.display=(currentStaff && !adminLocked)?'flex':'none'; }
+    function getEntryDateKey(entry){
+      if(entry.dateKey) return entry.dateKey;
+      if(entry.isoTime) return entry.isoTime.slice(0,10);
+      const parsed=new Date(entry.time);
+      return isNaN(parsed) ? currentDateKey() : currentDateKey(parsed);
+    }
+    function visibleTechs(){ return techs.filter(t=>t.active&&t.cardVisible!==false); }
+    function hiddenVisibleTechs(){ return techs.filter(t=>t.active&&t.cardVisible===false); }
+    function sortTechCards(list){
+      const mode=uiPrefs.sortMode||'overdue';
+      const now=Date.now();
+      const severity=t=>{
+        if(!t.lastUpdate||t.onBreak) return t.shiftEnded?1:0;
+        const diff=new Date(t.lastUpdate).getTime()+UPDATEDUR-now;
+        if(diff<0) return 4;
+        if(diff<=5*60*1000) return 3;
+        if(diff<=15*60*1000) return 2;
+        return t.shiftEnded?1:0;
+      };
+      return list.slice().sort((a,b)=>{
+        if(mode==='alpha') return a.name.localeCompare(b.name);
+        if(mode==='shift'){
+          const aShift=a.shiftStart?new Date(a.shiftStart).getTime():0;
+          const bShift=b.shiftStart?new Date(b.shiftStart).getTime():0;
+          return bShift-aShift || a.name.localeCompare(b.name);
+        }
+        return severity(b)-severity(a) || a.name.localeCompare(b.name);
+      });
+    }
+    function playAlert(sound){
+      if(uiPrefs.soundEnabled===false) return;
+      sound.play().catch(()=>{});
+    }
+    function notifyUser(title, body){
+      if(!uiPrefs.notificationsEnabled || !('Notification' in window) || Notification.permission!=='granted') return;
+      new Notification(title,{body});
+    }
+    async function loadSharedStateFromSupabase(){
+      if(!supabaseClient) return false;
+      const { data, error } = await supabaseClient.from(SUPABASE_STATE_TABLE).select('payload').eq('id', SUPABASE_STATE_ROW).maybeSingle();
+      if(error){
+        console.warn('Supabase load failed', error.message);
+        return false;
+      }
+      if(data && data.payload){
+        isApplyingRemoteState=true;
+        applyStateSnapshot(data.payload);
+        saveLocalState();
+        isApplyingRemoteState=false;
+        return true;
+      }
+      return false;
+    }
+    async function subscribeToSharedState(){
+      if(!supabaseClient) return;
+      if(supabaseChannel) await supabaseClient.removeChannel(supabaseChannel);
+      supabaseChannel = supabaseClient.channel('shared-dashboard-state').on('postgres_changes',{event:'*',schema:'public',table:SUPABASE_STATE_TABLE,filter:`id=eq.${SUPABASE_STATE_ROW}`},payload=>{
+        if(!payload.new || !payload.new.payload) return;
+        isApplyingRemoteState=true;
+        applyStateSnapshot(payload.new.payload);
+        saveLocalState();
+        isApplyingRemoteState=false;
+        renderAll();
+      }).subscribe();
+    }
+    window.syncStateToSupabase=async()=>{ if(!supabaseClient || !syncReady || isApplyingRemoteState) return; const { error } = await supabaseClient.from(SUPABASE_STATE_TABLE).upsert({id:SUPABASE_STATE_ROW,payload:serializeState(),updated_at:new Date().toISOString()}); if(error) console.warn('Supabase sync failed', error.message); };
+    async function initializeSupabase(){
+      if(!window.supabase || !window.supabase.createClient) return;
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const loaded = await loadSharedStateFromSupabase();
+      syncReady = true;
+      if(!loaded) await window.syncStateToSupabase();
+      await subscribeToSharedState();
+    }
+    function setCommandViewClass(){
+      document.body.classList.toggle('command-view', !!uiPrefs.commandView);
+      const sort=document.getElementById('sort-mode');
+      if(sort) sort.value=uiPrefs.sortMode||'overdue';
+      const cv=document.getElementById('commandViewToggle');
+      const sound=document.getElementById('soundToggle');
+      const notif=document.getElementById('notificationToggle');
+      if(cv) cv.checked=!!uiPrefs.commandView;
+      if(sound) sound.checked=uiPrefs.soundEnabled!==false;
+      if(notif) notif.checked=!!uiPrefs.notificationsEnabled;
+    }
+    function addTechNote(t, text, actor){
+      if(!text) return;
+      t.noteEntries.unshift({time:new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), text, actor:actor||currentStaff||'System', dateKey:currentDateKey(), isoTime:new Date().toISOString()});
+      t.noteEntries=t.noteEntries.slice(0,20);
+      t.note='';
+    }
+    function resetTransientTechState(t){
+      t.shiftStart=null; t.lastUpdate=null; t.onBreak=false; t.shiftEnded=false; t.activeIssue=null; t.issueResolved=null; t.note=''; t.noteEntries=[]; t.cardVisible=t.active;
+    }
+    function runDailyResetInternal(manual=false){
+      const today=currentDateKey();
+      const archiveKey=manual?`${today}-manual-${Date.now()}`:lastResetDate;
+      dailyArchives[archiveKey]={entries:[...activityLog],techSnapshot:techs.map(t=>({name:t.name,shiftStart:t.shiftStart,lastUpdate:t.lastUpdate,shiftEnded:t.shiftEnded,onBreak:t.onBreak,activeIssue:t.activeIssue,issueResolved:t.issueResolved,noteEntries:t.noteEntries||[]})),archivedAt:new Date().toISOString(),manual};
+      activityLog=[];
+      techs.forEach(resetTransientTechState);
+      alertPlayed={}; shiftAlertPlayed={};
+      lastResetDate=today;
+      save();
+    }
+    function maybeDailyReset(){ const today=currentDateKey(); if(lastResetDate && lastResetDate!==today){ runDailyResetInternal(false); } }
+    function todaysEntriesForTech(name){
+      const today=currentDateKey();
+      return masterArchive.filter(e=>e.tech===name && getEntryDateKey(e)===today);
+    }
+    function getFilteredReportEntries(){
+      const techName=document.getElementById('reportTech')?.value||'all';
+      const start=document.getElementById('reportStart')?.value||'';
+      const end=document.getElementById('reportEnd')?.value||'';
+      return masterArchive.filter(e=>{
+        const dateKey=getEntryDateKey(e);
+        if(techName!=='all' && e.tech!==techName) return false;
+        if(start && dateKey<start) return false;
+        if(end && dateKey>end) return false;
+        return true;
+      });
+    }
+    function logAction(tech, action, type, note='', actor=null){ const now=new Date(); const actorName=actor||currentStaff||'System'; const entry={time:now.toLocaleString(),isoTime:now.toISOString(),dateKey:currentDateKey(now),tech,message:action,type,note,actor:actorName}; activityLog.unshift(entry); masterArchive.push(entry); save(); renderLog(); updateChartsData(); renderStatusOverview(); }
+    function ensureTech(i){ return techs[i]; }
+    function syncCardTimers(i){
+      const t=techs[i];
+      if(!t) return;
+      const timerEl=document.getElementById(`up-timer-${i}`);
+      const shiftEl=document.getElementById(`sh-timer-${i}`);
+      const bar=document.getElementById(`prog-${i}`);
+      const card=document.getElementById(`card-${i}`);
+      const now=Date.now();
+      if(timerEl){
+        if(t.onBreak){
+          timerEl.innerText='BREAK';
+          timerEl.style.color='#fbbf24';
+        } else if(t.lastUpdate){
+          timerEl.innerText='02:00:00';
+          timerEl.style.color='#eef2fb';
+        } else {
+          timerEl.innerText='02:00:00';
+          timerEl.style.color='#eef2fb';
+        }
+      }
+      if(card) card.classList.remove('overdue');
+      if(t.shiftStart){
+        const start=new Date(t.shiftStart).getTime();
+        const diff=start+SHIFTDUR-now;
+        const pct=Math.min(Math.max(((now-start)/SHIFTDUR)*100,0),100);
+        if(shiftEl) shiftEl.innerText=formatDiff(diff);
+        if(bar){
+          bar.style.width=pct+'%';
+          bar.classList.toggle('overtime', diff<0);
+        }
+      } else {
+        if(shiftEl) shiftEl.innerText='08:00:00';
+        if(bar){
+          bar.style.width='0%';
+          bar.classList.remove('overtime');
+        }
+      }
+    }
+    function openModal(id){ document.getElementById(id).classList.add('show'); }
+    function closeModal(id){ document.getElementById(id).classList.remove('show'); }
+    window.handleAdminToggle=()=>{ if(adminLocked) openModal('adminLoginModal'); else { adminLocked=true; applyLockClass(); save(); renderAll(); } };
+    window.closeAdminModal=()=>{ closeModal('adminLoginModal'); document.getElementById('adminPassword').value=''; document.getElementById('adminError').innerText=''; };
+    window.verifyAdmin=()=>{ if(document.getElementById('adminPassword').value===adminPassword){ adminLocked=false; applyLockClass(); save(); window.closeAdminModal(); renderAll(); } else document.getElementById('adminError').innerText='Incorrect password'; };
+    window.openStaffLogin=()=>{ const sel=document.getElementById('staffSelect'); sel.innerHTML=commandStaff.map(n=>`<option value="${n}">${n}</option>`).join(''); document.getElementById('staffPassword').value=STAFFDEFAULTPASS; openModal('staffLoginModal'); };
+    window.closeStaffModal=()=>{ closeModal('staffLoginModal'); document.getElementById('staffError').innerText=''; };
+    window.verifyStaffLogin=()=>{ const n=document.getElementById('staffSelect').value; const p=document.getElementById('staffPassword').value; if(!n) return; if(p===String(staffPasswords[n]||STAFFDEFAULTPASS)){ currentStaff=n; save(); updateStaffUI(); window.closeStaffModal(); logAction('System','Staff login','update','', 'System'); renderAll(); } else document.getElementById('staffError').innerText='Invalid password'; };
+    window.logoutStaff=()=>{ if(currentStaff){ logAction('System','Staff logout','update','',currentStaff); currentStaff=null; save(); updateStaffUI(); renderAll(); } };
+    window.openPasswordModal=(name)=>{ if(!checkPermission(true)) return; document.getElementById('passwordStaffName').innerText='Change password for ' + name; document.getElementById('passwordStaffIndex').value=name; document.getElementById('newPassword').value=''; openModal('passwordModal'); };
+    window.closePasswordModal=()=>{ closeModal('passwordModal'); };
+    window.savePassword=()=>{ const n=document.getElementById('passwordStaffIndex').value, p=document.getElementById('newPassword').value; if(!p) return; staffPasswords[n]=p; save(); window.closePasswordModal(); logAction('System','Password changed for '+n,'update','',currentStaff); renderCommandRoster(); };
+    window.openHistoryModal=(i)=>{ const t=techs[i]; if(!t) return; document.getElementById('historyTitle').innerHTML=`<i class="fas fa-history"></i> ${t.name} History`; document.getElementById('historyMeta').innerText='Today only'; const entries=todaysEntriesForTech(t.name); document.getElementById('historyContent').innerHTML=entries.length?entries.map(e=>`<div class="history-item"><div><strong>${e.message}</strong>${e.note?` · ${e.note}`:''}</div><div class="note-meta">${e.time}${e.actor?` by ${e.actor}`:''}</div></div>`).join(''):'<div class="history-item">No entries recorded today.</div>'; openModal('historyModal'); };
+    window.closeHistoryModal=()=> closeModal('historyModal');
+    window.openReportModal=()=>{ const start=document.getElementById('reportStart'), end=document.getElementById('reportEnd'), tech=document.getElementById('reportTech'); const today=currentDateKey(); if(start&&!start.value) start.value=today; if(end&&!end.value) end.value=today; if(tech){ tech.innerHTML=`<option value="all">All technicians</option>` + techs.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=>`<option value="${t.name}">${t.name}</option>`).join(''); } openModal('reportModal'); };
+    window.closeReportModal=()=> closeModal('reportModal');
+    window.setSortMode=(mode)=>{ uiPrefs.sortMode=mode; save(); renderCards(); };
+    window.toggleCommandView=(checked)=>{ uiPrefs.commandView=checked; save(); setCommandViewClass(); };
+    window.toggleSoundAlerts=(checked)=>{ uiPrefs.soundEnabled=checked; save(); setCommandViewClass(); };
+    window.toggleNotifications=async(checked)=>{ if(checked&&'Notification' in window&&Notification.permission==='default'){ try{ await Notification.requestPermission(); }catch(e){} if(Notification.permission!=='granted'){ checked=false; } } uiPrefs.notificationsEnabled=checked&&'Notification' in window&&Notification.permission==='granted'; save(); setCommandViewClass(); };
+    window.runDailyReset=(manual=false)=>{ if(!checkPermission(true)) return; if(manual && !confirm('Archive today and reset the dashboard for a new day?')) return; runDailyResetInternal(!!manual); logAction('System','Daily reset completed','update',manual?'Manual reset':'Automatic date rollover',currentStaff); renderAll(); };
+    window.openIssueModal=(i)=>{ if(!checkPermission(false)) return; document.getElementById('issueTechIndex').value=i; document.getElementById('issueDescription').value=''; openModal('issueModal'); };
+    window.closeIssueModal=()=> closeModal('issueModal');
+    window.submitIssue=()=>{ const i=parseInt(document.getElementById('issueTechIndex').value,10); const d=document.getElementById('issueDescription').value.trim(); const t=techs[i]; if(!t||!d) return; t.activeIssue=d; t.issueResolved=null; logAction(t.name,'Ticket created','issue',d,currentStaff); save(); window.closeIssueModal(); renderCards(); };
+    window.openResolveModal=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; document.getElementById('resolveTechIndex').value=i; document.getElementById('resolveIssueDesc').innerText=t.activeIssue||''; document.getElementById('resolutionNotes').value=''; openModal('resolveModal'); };
+    window.closeResolveModal=()=> closeModal('resolveModal');
+    window.submitResolution=()=>{ const i=parseInt(document.getElementById('resolveTechIndex').value,10); const r=document.getElementById('resolutionNotes').value.trim(); const t=techs[i]; if(!t) return; const issue=t.activeIssue; if(!issue) return; t.activeIssue=null; t.issueResolved={desc:issue,resolution:r||'No details',time:new Date().toLocaleString()}; logAction(t.name,'Ticket resolved','resolve',issue + (r ? ' · ' + r : ''),currentStaff); save(); window.closeResolveModal(); renderCards(); };
+    window.toggleTech=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; t.active=!t.active; if(t.active) t.cardVisible=true; else t.cardVisible=false; save(); renderTechRoster(); renderCards(); updateSummaryAndCharts(); };
+    window.removeTech=(name)=>{ if(!checkPermission(false)) return; if(!confirm('Remove ' + name + '?')) return; techs=techs.filter(t=>t.name!==name); save(); renderTechRoster(); renderCards(); logAction(name,'Removed from roster','update','',currentStaff); };
+    window.addNewTech=()=>{ if(!checkPermission(false)) return; const inp=document.getElementById('new-tech-name'), n=inp.value.trim(); if(!n||techs.some(t=>t.name===n)) return; techs.push(normalizeTech({name:n,shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null})); inp.value=''; save(); renderTechRoster(); renderCards(); };
+    window.addCommandStaff=()=>{ if(!checkPermission(true)) return; const inp=document.getElementById('new-command-name'), n=inp.value.trim(); if(!n||commandStaff.includes(n)) return; commandStaff.push(n); staffRoles[n]='staff'; staffPasswords[n]=STAFFDEFAULTPASS; inp.value=''; save(); renderCommandRoster(); logAction('System','Added command staff '+n,'update','',currentStaff); };
+    window.removeCommandStaff=(n)=>{ if(!checkPermission(true)) return; if(n===currentStaff){ alert('Cannot remove yourself while logged in.'); return; } if(!confirm('Remove ' + n + '?')) return; commandStaff=commandStaff.filter(s=>s!==n); delete staffPasswords[n]; delete staffRoles[n]; save(); renderCommandRoster(); logAction('System','Removed command staff '+n,'update','',currentStaff); };
+    window.beginShift=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; t.cardVisible=true; t.shiftEnded=false; t.shiftStart=new Date().toISOString(); t.lastUpdate=new Date().toISOString(); t.onBreak=false; delete alertPlayed[i]; delete shiftAlertPlayed[i]; logAction(t.name,'Shift Started','start','',currentStaff); save(); renderCards(); };
+    window.endShift=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; logAction(t.name,'Shift Ended','end','',currentStaff); t.shiftEnded=true; t.shiftStart=null; t.lastUpdate=null; t.onBreak=false; delete alertPlayed[i]; delete shiftAlertPlayed[i]; save(); renderCards(); };
+    window.closeCard=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; t.cardVisible=false; save(); renderCards(); renderTechRoster(); updateSummaryAndCharts(); };
+    window.showCard=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; t.active=true; t.cardVisible=true; save(); renderTechRoster(); renderCards(); updateSummaryAndCharts(); };
+    window.toggleBreak=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; t.onBreak=!t.onBreak; if(!t.onBreak) t.lastUpdate=new Date().toISOString(); else delete alertPlayed[i]; logAction(t.name,t.onBreak?'Break started':'Break ended',t.onBreak?'break-start':'break-end','',currentStaff); save(); renderCards(); };
+    window.confirmUpdate=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; const noteEl=document.getElementById('note-'+i); const note=noteEl?noteEl.value.trim():''; const nowIso=new Date().toISOString(); t.lastUpdate=nowIso; t.onBreak=false; if(!t.shiftStart) t.shiftStart=nowIso; t.shiftEnded=false; if(note) addTechNote(t,note,currentStaff); if(noteEl) noteEl.value=''; delete alertPlayed[i]; save(); syncCardTimers(i); logAction(t.name,'Log Updated','update',note,currentStaff); renderCards(); updateTimersAndSummary(); };
+    window.setManualShiftStart=(i)=>{ if(!checkPermission(false)) return; const t=techs[i]; if(!t) return; const inp=document.getElementById('manual-shift-'+i); const p=parseTimeString(inp.value.trim()); if(!p){ alert('Invalid time format. Use HH:MM or HH:MM AM/PM'); return; } t.cardVisible=true; t.shiftEnded=false; t.shiftStart=p.toISOString(); t.lastUpdate=p.toISOString(); t.onBreak=false; delete alertPlayed[i]; logAction(t.name,'Manual shift start set to '+p.toLocaleTimeString(),'update','',currentStaff); save(); renderCards(); };
+    function renderTechRoster(){ const c=document.getElementById('tech-roster-list'); c.innerHTML=techs.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=>{ const i=techs.findIndex(o=>o.name===t.name); const hiddenBadge=t.active&&t.cardVisible===false?'<span style="font-size:.65rem;opacity:.65;margin-right:8px">Hidden</span>':''; const showBtn=t.cardVisible===false&&currentStaff&&!adminLocked?`<i class="fas fa-eye" title="Show card" style="opacity:.75;cursor:pointer;margin-right:8px" onclick="window.showCard(${i})"></i>`:''; return `<div class="roster-item"><input type="checkbox" ${t.active?'checked':''} onchange="window.toggleTech(${i})"><span style="flex:1">${t.name}</span>${hiddenBadge}${showBtn}${currentStaff&&!adminLocked?`<i class="fas fa-times" style="opacity:.6;cursor:pointer" onclick="window.removeTech('${t.name.replace(/'/g,"\\'")}')"></i>`:''}</div>`; }).join(''); }
+    function renderCommandRoster(){ const c=document.getElementById('command-roster-list'); c.innerHTML=commandStaff.slice().sort().map(n=>{ const canModify=hasAdminRights(); const roleBadge=staffRoles[n]==='admin'?'<span class="admin-badge">Admin</span>':''; return `<div class="roster-item"><span style="flex:1">${n}${roleBadge}</span>${canModify?`<i class="fas fa-key" style="opacity:.6;cursor:pointer;margin-right:8px" onclick="window.openPasswordModal('${n.replace(/'/g,"\\'")}')"></i><i class="fas fa-times" style="opacity:.6;cursor:pointer" onclick="window.removeCommandStaff('${n.replace(/'/g,"\\'")}')"></i>`:''}</div>`; }).join(''); }
+    function renderNotesPanel(t, i, canModify){
+      const notes=(t.noteEntries||[]).filter(n=>(n.dateKey||currentDateKey())===currentDateKey()).slice(0,3);
+      const items=notes.length?notes.map(n=>`<div class="note-entry"><div>${n.text}</div><div class="note-meta">${n.time}${n.actor?` · ${n.actor}`:''}</div></div>`).join(''):'<div class="note-entry"><div class="note-meta">No notes logged today.</div></div>';
+      return `<div class="notes-panel" onclick="event.stopPropagation()"><div class="notes-list">${items}</div><input id="note-${i}" class="note-input" placeholder="Add timestamped note..." value="" ${canModify?`oninput="techs[${i}].note=this.value;save()"`:'readonly'}></div>`;
+    }
+    function renderHiddenTray(){ const tray=document.getElementById('hidden-tray'); const list=document.getElementById('hidden-tray-list'); const hidden=hiddenVisibleTechs().sort((a,b)=>a.name.localeCompare(b.name)); if(!tray||!list) return; tray.style.display=hidden.length?'block':'none'; list.innerHTML=hidden.map(t=>{ const i=techs.findIndex(o=>o.name===t.name); return `<div class="hidden-chip"><span>${t.name}</span><button onclick="window.showCard(${i})">Show</button></div>`; }).join(''); }
+    function renderCards(){ const grid=document.getElementById('monitor-grid'); const active=sortTechCards(visibleTechs()); grid.innerHTML=active.map(t=>{ const i=techs.findIndex(o=>o.name===t.name); const nextDue=t.lastUpdate ? new Date(new Date(t.lastUpdate).getTime()+UPDATEDUR).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '----'; const lastDisplay=t.lastUpdate ? new Date(t.lastUpdate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '----'; const canModify=currentStaff&&!adminLocked; return `<div class="tech-card ${t.onBreak?'on-break':''} ${t.activeIssue?'has-issue':''}" id="card-${i}" onclick="window.openHistoryModal(${i})"><button class="close-card" title="Close card" onclick="event.stopPropagation();window.closeCard(${i})">×</button><h3>${t.name}${t.onBreak?'<span style="font-size:.7rem;color:#fbbf24">On Break</span>':''}${t.shiftEnded?'<span style="font-size:.7rem;color:#fca5a5">Off Shift</span>':''}</h3><div style="display:flex;justify-content:space-between;font-size:.7rem;opacity:.7"><span>Last ${lastDisplay}</span><span>Due ${nextDue}</span></div><div class="manual-time-row" onclick="event.stopPropagation()"><span>Shift Start</span><input type="text" id="manual-shift-${i}" placeholder="e.g. 8:00 AM" value="${t.shiftStart?new Date(t.shiftStart).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}):''}" ${canModify?'':'readonly'}><button onclick="event.stopPropagation();window.setManualShiftStart(${i})" ${canModify?'':'disabled'}>Set</button></div><div class="timer-section"><div class="update-timer" id="up-timer-${i}">${t.onBreak?'BREAK':(t.lastUpdate?formatDiff(new Date(t.lastUpdate).getTime()+UPDATEDUR-Date.now()):'02:00:00')}</div></div>${t.activeIssue?`<div class="issue-badge"><i class="fas fa-ticket-alt"></i> ${t.activeIssue.substring(0,25)}</div>`:''}${canModify?`<div style="display:flex;gap:5px;margin:8px 0" onclick="event.stopPropagation()"><button class="ticket-btn" onclick="event.stopPropagation();window.openIssueModal(${i})"><i class="fas fa-ticket-alt"></i> Trouble Ticket</button>${t.activeIssue?`<button class="resolve-btn btn" style="flex:0" onclick="event.stopPropagation();window.openResolveModal(${i})"><i class="fas fa-check"></i> Resolve</button>`:''}</div>`:''}${renderNotesPanel(t,i,canModify)}<div class="btn-group" onclick="event.stopPropagation()"><button class="btn update-btn" onclick="event.stopPropagation();window.confirmUpdate(${i})">Update</button><button class="btn begin-btn" onclick="event.stopPropagation();window.beginShift(${i})">Begin Shift</button><button class="btn break-btn" onclick="event.stopPropagation();window.toggleBreak(${i})">${t.onBreak?'Return':'Break'}</button><button class="btn end-btn" onclick="event.stopPropagation();window.endShift(${i})">End Shift</button></div><div class="progress-container"><div class="progress-bar" id="prog-${i}"></div></div><div style="display:flex;justify-content:space-between;font-size:.65rem"><span>Shift left</span><span id="sh-timer-${i}">${t.shiftStart?formatDiff(new Date(t.shiftStart).getTime()+SHIFTDUR-Date.now()):'08:00:00'}</span></div></div>`; }).join(''); applyLockClass(); renderHiddenTray(); updateSummaryAndCharts(); renderStatusOverview(); }
+    function renderStatusOverview(){ const container=document.getElementById('status-overview-grid'); container.innerHTML=sortTechCards(visibleTechs()).map(t=>{ let statusText='Not Started', indicatorClass='idle'; if(t.onBreak){statusText='On Break'; indicatorClass='break'} else if(t.activeIssue){statusText='Ticket Open'; indicatorClass='issue'} else if(t.shiftStart){statusText='Active'; indicatorClass='active'} else if(t.shiftEnded){statusText='Off Shift'; indicatorClass='inactive'} const issueInfo=t.activeIssue?`<div class="issue-detail">${t.activeIssue}</div>`:(t.issueResolved?`<div class="issue-detail">Resolved: ${t.issueResolved.resolution}<br><small>${t.issueResolved.time}</small></div>`:''); return `<div class="status-item"><div class="status-header"><span class="status-indicator ${indicatorClass}"></span><span style="flex:1">${t.name}</span><span style="font-size:.7rem">${statusText}</span></div>${issueInfo}</div>`; }).join(''); }
+    function updateTimersAndSummary(){ maybeDailyReset(); const now=Date.now(); const clock=document.getElementById('current-clock'); if(clock) clock.innerText=new Date().toLocaleTimeString(); techs.forEach((t,i)=>{ if(!t.active) return; const timerEl=document.getElementById(`up-timer-${i}`), shEl=document.getElementById(`sh-timer-${i}`), bar=document.getElementById(`prog-${i}`), card=document.getElementById(`card-${i}`); if(card){ card.classList.remove('warning-update','critical-update','overdue','shift-complete'); } if(timerEl){ if(t.onBreak){ timerEl.innerText='BREAK'; timerEl.style.color='#fbbf24'; } else if(t.lastUpdate){ const diff=new Date(t.lastUpdate).getTime()+UPDATEDUR-now; timerEl.innerText=formatDiff(diff); if(diff<0){ timerEl.style.color='#f87171'; if(card) card.classList.add('overdue'); if(!alertPlayed[i] && diff<-5000){ playAlert(alertSound); notifyUser(`${t.name} update overdue`,`${t.name} is overdue for a 2-hour update.`); alertPlayed[i]=true; } } else if(diff<=5*60*1000){ timerEl.style.color='#fb923c'; if(card) card.classList.add('critical-update'); delete alertPlayed[i]; } else if(diff<=15*60*1000){ timerEl.style.color='#facc15'; if(card) card.classList.add('warning-update'); delete alertPlayed[i]; } else { timerEl.style.color='#eef2fb'; delete alertPlayed[i]; } } else { timerEl.innerText='02:00:00'; timerEl.style.color='#eef2fb'; } } if(t.shiftStart){ const start=new Date(t.shiftStart).getTime(); const diff=start+SHIFTDUR-now; const pct=Math.min(Math.max(((now-start)/SHIFTDUR)*100,0),100); if(shEl) shEl.innerText=formatDiff(diff); if(bar){ bar.style.width=pct+'%'; bar.classList.toggle('overtime', diff<0); } if(diff<0 && card){ card.classList.add('shift-complete'); if(!shiftAlertPlayed[i]){ playAlert(shiftAlertSound); notifyUser(`${t.name} shift complete`,`${t.name} has passed the 8-hour shift mark.`); shiftAlertPlayed[i]=true; } } if(diff>=0) delete shiftAlertPlayed[i]; } else { if(shEl) shEl.innerText='08:00:00'; if(bar){ bar.style.width='0%'; bar.classList.remove('overtime'); } delete shiftAlertPlayed[i]; } }); updateSummaryNumbers(); renderStatusOverview(); }
+    function updateSummaryNumbers(){ const visible=visibleTechs(); const onShift=visible.filter(t=>t.shiftStart); let due=0; const now=Date.now(); onShift.forEach(t=>{ if(!t.onBreak && t.lastUpdate && new Date(t.lastUpdate).getTime()+UPDATEDUR<now) due++; }); document.getElementById('count-active').innerText=onShift.length; document.getElementById('count-due').innerText=due; document.getElementById('summary-onshift').innerText=visible.filter(t=>t.shiftStart&&!t.onBreak&&!t.activeIssue).length; document.getElementById('summary-break').innerText=visible.filter(t=>t.onBreak).length; document.getElementById('summary-offshift').innerText=visible.filter(t=>t.shiftEnded).length; document.getElementById('summary-notstarted').innerText=visible.filter(t=>!t.shiftStart&&!t.shiftEnded&&!t.onBreak&&!t.activeIssue).length; document.getElementById('summary-tickets').innerText=visible.filter(t=>t.activeIssue).length; }
+    function updateSummaryAndCharts(){ updateSummaryNumbers(); updateChartsData(); }
+    function initializeCharts(){ const ctxBar=document.getElementById('productivityChart').getContext('2d'), ctxPie=document.getElementById('statusPieChart').getContext('2d'); prodChart=new Chart(ctxBar,{type:'bar',data:{labels:[],datasets:[{label:'Updates',data:[],backgroundColor:'#3b82f6'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}}}); pieChart=new Chart(ctxPie,{type:'doughnut',data:{labels:['Active','Break','Ticket','Idle / Off Shift'],datasets:[{data:[0,0,0,0],backgroundColor:['#10b981','#f59e0b','#f97316','#94a3b8']}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:'#cbd5e1'}}},cutout:'60%'}}); }
+    function updateChartsData(){ if(!prodChart||!pieChart) initializeCharts(); const counts={}; visibleTechs().forEach(t=>counts[t.name]=masterArchive.filter(e=>e.tech===t.name && e.message.includes('Update')).length); prodChart.data.labels=Object.keys(counts); prodChart.data.datasets[0].data=Object.values(counts); prodChart.update(); const visible=visibleTechs(); const activeCnt=visible.filter(t=>t.shiftStart&&!t.onBreak&&!t.activeIssue).length; const breakCnt=visible.filter(t=>t.onBreak).length; const issueCnt=visible.filter(t=>t.activeIssue).length; const idleCnt=visible.filter(t=>!t.shiftStart&&!t.onBreak&&!t.activeIssue).length; pieChart.data.datasets[0].data=[activeCnt,breakCnt,issueCnt,idleCnt]; pieChart.update(); }
+    function renderLog(){ const container=document.getElementById('log-content'); container.innerHTML=activityLog.slice(0,30).map(e=>{ let emoji='•'; if(e.type==='start') emoji='▶'; else if(e.type==='end') emoji='■'; else if(e.type==='break-start') emoji='☕'; else if(e.type==='break-end') emoji='↩'; else if(e.type==='issue') emoji='⚠'; else if(e.type==='resolve') emoji='✓'; const actorStr=e.actor ? ` by ${e.actor}` : ''; const techIdx=techs.findIndex(t=>t.name===e.tech); const focusBtn=e.type==='issue'&&techIdx!==-1&&currentStaff&&!adminLocked ? `<button class="focus-issue-btn" onclick="window.openIssueModal(${techIdx})"><i class="fas fa-eye"></i></button>` : ''; return `<div class="log-entry"><span style="opacity:.8">${e.time}</span>&nbsp;${emoji}&nbsp;<strong>${e.tech}</strong>&nbsp;${e.message}${actorStr}${e.note?` · ${e.note}`:''}${focusBtn}</div>`; }).join(''); }
+    window.downloadPDFReport=()=>{ const { jsPDF } = window.jspdf; const entries=getFilteredReportEntries(); const techName=document.getElementById('reportTech')?.value||'all'; const start=document.getElementById('reportStart')?.value||currentDateKey(); const end=document.getElementById('reportEnd')?.value||currentDateKey(); const doc=new jsPDF(); doc.setFontSize(16); doc.text('Tech Monitor Report',14,18); doc.setFontSize(10); doc.text(`Range: ${start} to ${end}  Technician: ${techName==='all'?'All':techName}`,14,24); doc.autoTable({startY:30,head:[['Time','Tech','Event','Actor','Notes']],body:entries.map(e=>[e.time,e.tech,e.message,e.actor||'',e.note||''])}); doc.save(`Report-${start}-to-${end}${techName!=='all'?'-'+techName.replace(/\s+/g,'-'):''}.pdf`); window.closeReportModal(); };
+    window.clearLog=()=>{ if(!checkPermission(true)) return; if(!confirm('Clear entire activity log and archive? This cannot be undone.')) return; activityLog=[]; masterArchive=[]; save(); renderLog(); updateChartsData(); logAction('System','Activity log cleared','update','',currentStaff); };
+    window.exportData=()=>{ const blob=new Blob([JSON.stringify({techs,commandStaff,staffPasswords,staffRoles,activityLog,masterArchive,dailyArchives,uiPrefs,lastResetDate,adminLocked,currentStaff},null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='TechBackup-'+new Date().toISOString().slice(0,10)+'.json'; a.click(); };
+    window.importData=(e)=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const d=JSON.parse(ev.target.result); if(d.techs) techs=d.techs.map(normalizeTech); if(d.commandStaff) commandStaff=d.commandStaff; if(d.staffPasswords) staffPasswords=d.staffPasswords; if(d.staffRoles) staffRoles=d.staffRoles; if(d.activityLog) activityLog=d.activityLog; if(d.masterArchive) masterArchive=d.masterArchive; if(d.dailyArchives) dailyArchives=d.dailyArchives; if(d.uiPrefs) uiPrefs={...defaultUiPrefs(),...d.uiPrefs}; if(d.lastResetDate) lastResetDate=d.lastResetDate; if(!commandStaff.includes('Jeremy Miller')) commandStaff.push('Jeremy Miller'); staffRoles['Jeremy Miller']='admin'; save(); renderAll(); alert('Data restored successfully.'); }catch(ex){ alert('Invalid file'); } }; r.readAsText(f); e.target.value=''; };
+    function renderAll(){ maybeDailyReset(); applyLockClass(); updateStaffUI(); setCommandViewClass(); renderTechRoster(); renderCommandRoster(); renderCards(); renderHiddenTray(); renderLog(); renderStatusOverview(); if(!prodChart) initializeCharts(); else updateChartsData(); updateSummaryNumbers(); }
+    async function initializeApp(){ loadFromStorage(); renderAll(); setInterval(updateTimersAndSummary,1000); await initializeSupabase(); renderAll(); }
+    initializeApp();
+  </script>
+</body>
+</html>
