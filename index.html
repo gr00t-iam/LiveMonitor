@@ -135,7 +135,7 @@
   </style>
 </head>
 <body>
-  <div class="modal-overlay" id="adminLoginModal"><div class="modal-card"><h3><i class="fas fa-lock"></i> Admin Auth</h3><input type="password" id="adminPassword" placeholder="Enter admin password"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeAdminModal()">Cancel</button><button class="login-btn" onclick="window.verifyAdmin()">Unlock</button></div><p id="adminError" style="color:#f87171"></p></div></div>
+<div class="modal-overlay" id="adminLoginModal"><div class="modal-card"><h3><i class="fas fa-lock"></i> Admin Auth</h3><input type="password" id="adminPassword" placeholder="Enter admin password"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeAdminModal()">Cancel</button><button class="login-btn" onclick="window.verifyAdmin()">Unlock</button></div><p id="adminError" style="color:#f87171"></p></div></div>
   <div class="modal-overlay" id="staffLoginModal"><div class="modal-card"><h3><i class="fas fa-user-shield"></i> Staff Login</h3><select id="staffSelect"></select><input type="password" id="staffPassword" placeholder="Password" value="1234"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeStaffModal()">Cancel</button><button class="login-btn" onclick="window.verifyStaffLogin()">Login</button></div><p id="staffError" style="color:#f87171"></p></div></div>
   <div class="modal-overlay" id="issueModal"><div class="modal-card"><h3><i class="fas fa-ticket-alt"></i> Trouble Ticket</h3><textarea id="issueDescription" rows="2" placeholder="Describe the issue..."></textarea><input type="hidden" id="issueTechIndex"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeIssueModal()">Cancel</button><button class="login-btn" style="background:#b45309" onclick="window.submitIssue()">Create Ticket</button></div></div></div>
   <div class="modal-overlay" id="resolveModal"><div class="modal-card"><h3><i class="fas fa-check-circle"></i> Resolve Ticket</h3><p id="resolveIssueDesc"></p><textarea id="resolutionNotes" rows="2" placeholder="Resolution notes..."></textarea><input type="hidden" id="resolveTechIndex"><div style="display:flex;gap:10px"><button class="login-btn secondary" onclick="window.closeResolveModal()">Cancel</button><button class="login-btn" style="background:#15803d" onclick="window.submitResolution()">Resolve</button></div></div></div>
@@ -178,7 +178,8 @@
     const SUPABASE_ANON_KEY = 'sb_publishable_NfpTF1-kiRCmYWYAjWaKGQ_BRBZu1UB';
     const SUPABASE_STATE_TABLE = 'shared_dashboard_state';
     const SUPABASE_STATE_ROW = 'main';
-    let techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked = false, currentStaff = null;
+    let techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked = false;
+    let currentStaff = sessionStorage.getItem('currentStaff') || null;
     let prodChart = null, pieChart = null, alertPlayed = {}, shiftAlertPlayed = {};
     let supabaseClient = null, supabaseChannel = null, syncReady = false, isApplyingRemoteState = false, syncTimer = null;
     const alertSound = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
@@ -201,13 +202,13 @@
         issueResolved:t.issueResolved||null
       };
     }
-    function serializeState(){ return {techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked, currentStaff}; }
+    function serializeState(){ return {techs, commandStaff, staffPasswords, staffRoles, activityLog, masterArchive, dailyArchives, uiPrefs, adminPassword, lastResetDate, adminLocked}; }
     function saveLocalState(){ localStorage.setItem('techMonitorData', JSON.stringify(serializeState())); }
     function scheduleSupabaseSync(){ if(!syncReady || isApplyingRemoteState) return; clearTimeout(syncTimer); syncTimer=setTimeout(()=>window.syncStateToSupabase(), 300); }
     function save(){ saveLocalState(); scheduleSupabaseSync(); }
     function applyStateSnapshot(data){
       techs=(data.techs||[]).map(normalizeTech);
-      commandStaff=data.commandStaff||['Sarah Chen','Mike Ross','Jeremy Miller'];
+      commandStaff=data.commandStaff||['David Lowe','Jeremy Miller'];
       staffPasswords=data.staffPasswords||{};
       staffRoles=data.staffRoles||{'Jeremy Miller':'admin'};
       activityLog=data.activityLog||[];
@@ -217,14 +218,13 @@
       adminPassword=data.adminPassword||DEFAULT_ADMIN_PASSWORD;
       lastResetDate=data.lastResetDate||currentDateKey();
       adminLocked=!!data.adminLocked;
-      currentStaff=data.currentStaff||null;
-    }
+      }
     function setDefaults(){
       techs=[{name:'Aaron Gonzales',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null},{name:'Ayo David',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null},{name:'Josh Carsten',shiftStart:null,lastUpdate:null,active:true,cardVisible:true,shiftEnded:false,note:'',noteEntries:[],onBreak:false,activeIssue:null,issueResolved:null}];
-      commandStaff=['Sarah Chen','Mike Ross','Jeremy Miller'];
+      commandStaff=['David Lowe','Jeremy Miller'];
       staffPasswords={'Sarah Chen':STAFFDEFAULTPASS,'Mike Ross':STAFFDEFAULTPASS,'Jeremy Miller':STAFFDEFAULTPASS};
       staffRoles={'Sarah Chen':'staff','Mike Ross':'staff','Jeremy Miller':'admin'};
-      activityLog=[]; masterArchive=[]; dailyArchives={}; uiPrefs=defaultUiPrefs(); adminPassword=DEFAULT_ADMIN_PASSWORD; lastResetDate=currentDateKey(); adminLocked=true; currentStaff=null; save();
+      activityLog=[]; masterArchive=[]; dailyArchives={}; uiPrefs=defaultUiPrefs(); adminPassword=DEFAULT_ADMIN_PASSWORD; lastResetDate=currentDateKey(); adminLocked=true; save();
     }
     function loadFromStorage(){
       const saved=localStorage.getItem('techMonitorData');
@@ -409,7 +409,7 @@
     window.openStaffLogin=()=>{ const sel=document.getElementById('staffSelect'); sel.innerHTML=commandStaff.map(n=>`<option value="${n}">${n}</option>`).join(''); document.getElementById('staffPassword').value=STAFFDEFAULTPASS; openModal('staffLoginModal'); };
     window.closeStaffModal=()=>{ closeModal('staffLoginModal'); document.getElementById('staffError').innerText=''; };
     window.verifyStaffLogin=()=>{ const n=document.getElementById('staffSelect').value; const p=document.getElementById('staffPassword').value; if(!n) return; if(p===String(staffPasswords[n]||STAFFDEFAULTPASS)){ currentStaff=n; save(); updateStaffUI(); window.closeStaffModal(); logAction('System','Staff login','update','', 'System'); renderAll(); } else document.getElementById('staffError').innerText='Invalid password'; };
-    window.logoutStaff=()=>{ if(currentStaff){ logAction('System','Staff logout','update','',currentStaff); currentStaff=null; save(); updateStaffUI(); renderAll(); } };
+    window.logoutStaff=()=>{ if(currentStaff){ logAction('System','Staff logout','update','',currentStaff);save(); updateStaffUI(); renderAll(); } };
     window.openPasswordModal=(name)=>{ if(!checkPermission(true)) return; document.getElementById('passwordStaffName').innerText='Change password for ' + name; document.getElementById('passwordStaffIndex').value=name; document.getElementById('newPassword').value=''; openModal('passwordModal'); };
     window.closePasswordModal=()=>{ closeModal('passwordModal'); };
     window.savePassword=()=>{ const n=document.getElementById('passwordStaffIndex').value, p=document.getElementById('newPassword').value; if(!p) return; staffPasswords[n]=p; save(); window.closePasswordModal(); logAction('System','Password changed for '+n,'update','',currentStaff); renderCommandRoster(); };
