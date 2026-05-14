@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>R&R Command Center - V26</title>
+    <meta http-equiv="refresh" content="300">
+    <style>
+        :root {
+            --bg-dark: #1e1e2f; --card-bg: #27293d; --text-main: #e1e1ea; --text-muted: #9a9a9a;
+            --accent-blue: #1d8cf8; --accent-red: #fd5d93; --accent-green: #00d6b4;
+            --accent-orange: #ff8a76; --accent-purple: #ba54f5; --accent-yellow: #f1c40f;
+        }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background-color: var(--bg-dark); color: var(--text-main); margin: 0; padding: 10px 15px; font-size: 0.9rem; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #3b3b54; padding-bottom: 8px; }
+        h1 { margin: 0; font-size: 1.3rem; font-weight: 400; color: #fff; }
+        .time-display { font-size: 1.1rem; color: var(--accent-blue); font-weight: bold; }
+        
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+        .column { display: flex; flex-direction: column; gap: 12px; }
+        .card { background-color: var(--card-bg); border-radius: 6px; padding: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 6px; transition: all 0.3s ease; }
+        .card h2 { margin: 0 0 4px 0; font-size: 0.9rem; color: var(--accent-blue); border-bottom: 1px solid #3b3b54; padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; display: flex; justify-content: space-between;}
+        
+        .scrollable-widget { max-height: 400px; overflow-y: auto; padding-right: 5px; } 
+        .inventory-scroll { max-height: 550px; overflow-y: auto; padding-right: 5px; }
+        .scrollable-widget::-webkit-scrollbar, .inventory-scroll::-webkit-scrollbar { width: 6px; }
+        .scrollable-widget::-webkit-scrollbar-thumb, .inventory-scroll::-webkit-scrollbar-thumb { background: #3b3b54; border-radius: 3px; }
+
+        .status-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 4px; border-left: 3px solid transparent; margin-bottom: 6px; transition: all 0.3s ease; }
+        .status-item:last-child { margin-bottom: 0; }
+        
+        .border-red { border-left-color: var(--accent-red); } .border-orange { border-left-color: var(--accent-orange); }
+        .border-green { border-left-color: var(--accent-green); } .border-purple { border-left-color: var(--accent-purple); } .border-blue { border-left-color: var(--accent-blue); }
+        
+        .item-details { flex-grow: 1; }
+        .highlight { color: #fff; font-weight: bold; font-size: 0.8rem; margin-bottom: 2px; }
+        .tech-info { font-size: 0.75rem; color: var(--text-muted); line-height: 1.3; }
+        .badge { padding: 2px 6px; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 8px; text-align: center; min-width: 50px; transition: all 0.3s ease; }
+        .badge.update { background: rgba(241, 196, 15, 0.1); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
+        [contenteditable="true"]:hover { background: rgba(255,255,255,0.05); cursor: text; border-radius: 3px; }
+        .editable-num { border-bottom: 1px dashed var(--text-muted); padding: 0 2px; color: var(--text-main); font-weight: bold; }
+        
+        .checkbox-wrapper { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--accent-orange); font-weight: bold; }
+        input[type="checkbox"] { cursor: pointer; }
+        a { color: var(--accent-blue); text-decoration: none; } a:hover { text-decoration: underline; }
+        textarea { width: 100%; height: 120px; background: rgba(255,255,255,0.02); border: 1px solid #3b3b54; color: var(--text-main); border-radius: 4px; padding: 10px; font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 0.85rem; resize: vertical; box-sizing: border-box; }
+        textarea:focus { outline: none; border-color: var(--accent-blue); background: rgba(255,255,255,0.05); }
+
+        .inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; margin-top: 6px; font-size: 0.7rem; color: var(--text-main); }
+        .inv-grid span { color: var(--text-muted); font-weight: normal; }
+
+        details { background: rgba(255,255,255,0.02); border-radius: 4px; padding: 6px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,0.05); }
+        summary { cursor: pointer; color: var(--accent-blue); font-weight: bold; font-size: 0.75rem; outline: none; list-style: none; text-transform: uppercase; letter-spacing: 0.5px; }
+        summary::-webkit-details-marker { display: none; }
+        summary::before { content: '▶ '; font-size: 0.65rem; color: var(--text-muted); display: inline-block; margin-right: 4px; transition: transform 0.2s; }
+        details[open] summary::before { transform: rotate(90deg); }
+        #pci-reset-btn:hover { color: var(--accent-blue) !important; }
+        .dismiss-btn:hover { color: #fff !important; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div>
+            <h1>R&R Command Center - PMO Ultimate</h1>
+            <span style="color: var(--text-muted); font-size: 0.8rem;">Jeremiah Miller | Gravette HQ</span>
+        </div>
+        <div class="time-display" id="clock">00:00:00</div>
+    </header>
+
+    <div class="dashboard-grid">
+        
+        <div class="column">
+            
+            <div class="card">
+                <h2>This Week's Sites</h2>
+                <div id="active-sites-container" class="scrollable-widget" style="max-height: 200px;">
+                    <div class="tech-info" style="padding: 10px; text-align: center;">Waiting for API connection...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><span>Live AZNS/AZSP Schedule</span> <span id="sync-status" style="font-size: 0.7rem; color: var(--accent-green);">Syncing...</span></h2>
+                <div id="schedule-container" class="scrollable-widget">
+                    <div class="tech-info" style="padding: 10px; text-align: center;">Waiting for API connection...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Active Chat Triage (Fires)</h2>
+                <div class="status-item border-red" id="fire-row-1">
+                    <div class="item-details"><div class="highlight">Store 6714 (David)</div><div class="tech-info">Unable to print labels.</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" id="chk-6714" class="triage-check"> DONE</label>
+                </div>
+                <div class="status-item border-red" id="fire-row-2">
+                    <div class="item-details"><div class="highlight">Store 8672 (Stephanie)</div><div class="tech-info">Printer not found on network.</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" id="chk-8672" class="triage-check"> DONE</label>
+                </div>
+                 <div class="status-item border-orange" id="fire-row-3">
+                    <div class="item-details"><div class="highlight">Store 5526 (Selena)</div><div class="tech-info">Uncompleted setup task.</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" id="chk-5526" class="triage-check"> DONE</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="column">
+            
+            <div class="card">
+                <h2>Tech Van Inventory & Laptops</h2>
+                <div id="inventory-container" class="inventory-scroll">
+                    <div class="tech-info" style="padding: 10px; text-align: center;">Waiting for Inventory data...</div>
+                </div>
+            </div>
+
+            <div class="card" id="pci-compliance-card" style="display: none;">
+                <h2>
+                    <span>PCI Laptop Audit</span> 
+                    <div>
+                        <span id="pci-reset-btn" style="cursor: pointer; font-size: 0.7rem; color: var(--text-muted); margin-right: 8px;" title="Reset checkboxes">↺ Reset</span>
+                    </div>
+                </h2>
+                
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Josh Carsten</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-josh"> Secured</label>
+                </div>
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Aaron Gonzales</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-aaron"> Secured</label>
+                </div>
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Derrick Dowden</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-derrick"> Secured</label>
+                </div>
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Nasir Yusuf</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-nasir"> Secured</label>
+                </div>
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Worren Scott</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-worren"> Secured</label>
+                </div>
+                <div class="status-item border-purple">
+                    <div class="item-details"><div class="highlight">Ayo David</div></div>
+                    <label class="checkbox-wrapper"><input type="checkbox" class="pci-check" id="pci-ayo"> Secured</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="column">
+
+            <div class="card">
+                <h2>Logistics & RMAs</h2>
+                <div class="status-item border-green">
+                    <div class="item-details"><div class="highlight">AZNS #11017 Cage Nuts</div><div class="tech-info" id="log-n1" contenteditable="true">FedEx #381222724123 - Delivered.</div></div>
+                    <span class="badge active" id="log-s1" contenteditable="true">DELIVERED</span>
+                </div>
+                <div class="status-item border-orange">
+                    <div class="item-details"><div class="highlight">Harris Tech RMAs</div><div class="tech-info" id="rma-n1" contenteditable="true">Stores 7635, 8892, 7158</div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Fleet Maintenance</h2>
+                <div class="status-item border-green" id="fleet-card-josh">
+                    <div class="item-details"><div class="highlight">Josh Carsten (Van HS417)</div><div class="tech-info">Miles: <span id="mi-curr-josh" class="editable-num" contenteditable="true">16733</span> | Next: <span id="mi-next-josh" class="editable-num" contenteditable="true">24000</span></div></div>
+                    <span class="badge active" id="badge-josh">OK</span>
+                </div>
+                <div class="status-item border-green" id="fleet-card-derrick">
+                    <div class="item-details"><div class="highlight">Derrick Dowden (Van HS405)</div><div class="tech-info">Miles: <span id="mi-curr-derrick" class="editable-num" contenteditable="true">19606</span> | Next: <span id="mi-next-derrick" class="editable-num" contenteditable="true">24000</span></div></div>
+                    <span class="badge active" id="badge-derrick">OK</span>
+                </div>
+                <div class="status-item border-green" id="fleet-card-nasir">
+                    <div class="item-details"><div class="highlight">Nasir Yusuf (Van HS416)</div><div class="tech-info">Miles: <span id="mi-curr-nasir" class="editable-num" contenteditable="true">13227</span> | Next: <span id="mi-next-nasir" class="editable-num" contenteditable="true">18000</span></div></div>
+                    <span class="badge active" id="badge-nasir">OK</span>
+                </div>
+                <div class="status-item border-green" id="fleet-card-worren">
+                    <div class="item-details"><div class="highlight">Worren Scott (Van HS415)</div><div class="tech-info">Miles: <span id="mi-curr-worren" class="editable-num" contenteditable="true">9000</span> | Next: <span id="mi-next-worren" class="editable-num" contenteditable="true">15000</span></div></div>
+                    <span class="badge active" id="badge-worren">OK</span>
+                </div>
+                <div class="status-item border-green" id="fleet-card-ayo">
+                    <div class="item-details"><div class="highlight">Ayo David (Van HS419)</div><div class="tech-info">Miles: <span id="mi-curr-ayo" class="editable-num" contenteditable="true">7799</span> | Next: <span id="mi-next-ayo" class="editable-num" contenteditable="true">15000</span></div></div>
+                    <span class="badge active" id="badge-ayo">OK</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Live Call Scratchpad</h2>
+                <textarea id="call-notes" placeholder="Jot down Store Numbers, IPs, and Manager Names here while on the phone..."></textarea>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // 1. Live Clock
+        function updateClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+        setInterval(updateClock, 1000); updateClock();
+
+        const APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbym4x8P-b72WA369RN-YyItz6g-uVA8bad6bfnX5ARfsMZDamkTIi1Zh36-uBmLbtheIQ/exec'; 
+
+        // ==========================================
+        // 2. THE CLOUD DATABASE ENGINE
+        // ==========================================
+        let saveTimers = {};
+
+        function scheduleCloudSave(key, value) {
+            clearTimeout(saveTimers[key]);
+            saveTimers[key] = setTimeout(() => {
+                const url = `${APP_SCRIPT_URL}?action=save&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`;
+                fetch(url).catch(e => console.error("Cloud Save Error:", e));
+            }, 1000);
+        }
+
+        function instantCloudSave(key, value) {
+            const url = `${APP_SCRIPT_URL}?action=save&key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`;
+            fetch(url).catch(e => console.error("Cloud Save Error:", e));
+        }
+
+        const editables = document.querySelectorAll('[contenteditable="true"]');
+        editables.forEach(el => {
+            el.addEventListener('input', () => {
+                scheduleCloudSave(el.id, el.innerHTML);
+                checkFleetMaintenance();
+            });
+        });
+        
+        const checks = document.querySelectorAll('input[type="checkbox"]');
+        checks.forEach(cb => {
+            cb.addEventListener('change', () => {
+                instantCloudSave(cb.id, cb.checked.toString());
+                if (cb.classList.contains('pci-check')) managePCIAudit();
+                if (cb.classList.contains('triage-check')) manageChatTriage();
+            });
+        });
+        
+        const callNotes = document.getElementById('call-notes');
+        if (callNotes) {
+            callNotes.addEventListener('input', () => scheduleCloudSave('call-notes', callNotes.value));
+        }
+
+        // ==========================================
+        // 3. UI LOGIC
+        // ==========================================
+        function managePCIAudit() {
+            const pciCard = document.getElementById('pci-compliance-card');
+            const pciCheckboxes = document.querySelectorAll('.pci-check');
+            
+            const now = new Date();
+            const todayDay = now.getDay(); 
+            const dateString = now.toLocaleDateString();
+
+            const lastReset = localStorage.getItem('lastPciReset');
+            if (todayDay === 3 && lastReset !== dateString) {
+                pciCheckboxes.forEach(cb => {
+                    cb.checked = false;
+                    instantCloudSave(cb.id, 'false');
+                });
+                localStorage.setItem('lastPciReset', dateString);
+            }
+
+            let allChecked = true;
+            pciCheckboxes.forEach(cb => {
+                const row = cb.closest('.status-item');
+                if (cb.checked) { row.style.display = 'none'; } 
+                else { row.style.display = 'flex'; allChecked = false; }
+            });
+
+            if (allChecked) {
+                pciCard.style.display = 'none';
+            } else {
+                pciCard.style.display = 'flex';
+            }
+        }
+
+        const pciResetBtn = document.getElementById('pci-reset-btn');
+        if (pciResetBtn) {
+            pciResetBtn.addEventListener('click', () => {
+                document.querySelectorAll('.pci-check').forEach(cb => {
+                    cb.checked = false;
+                    instantCloudSave(cb.id, 'false');
+                });
+                managePCIAudit();
+            });
+        }
+
+        function manageChatTriage() {
+            document.querySelectorAll('.triage-check').forEach(cb => {
+                const row = cb.closest('.status-item');
+                row.style.display = cb.checked ? 'none' : 'flex';
+            });
+        }
+
+        function checkFleetMaintenance() {
+            const vans = ['josh', 'derrick', 'nasir', 'worren', 'ayo'];
+            vans.forEach(van => {
+                const currentEl = document.getElementById(`mi-curr-${van}`);
+                const nextEl = document.getElementById(`mi-next-${van}`);
+                const badgeEl = document.getElementById(`badge-${van}`);
+                const cardEl = document.getElementById(`fleet-card-${van}`);
+                
+                if (currentEl && nextEl && badgeEl && cardEl) {
+                    let currentMiles = parseInt(currentEl.innerText.replace(/,/g, '')) || 0;
+                    let nextOil = parseInt(nextEl.innerText.replace(/,/g, '')) || 0;
+                    
+                    if (currentMiles >= nextOil && nextOil > 0) {
+                        badgeEl.innerText = "OVERDUE"; badgeEl.className = "badge critical update"; cardEl.className = "status-item border-red";
+                    } else if (nextOil - currentMiles <= 500 && nextOil > 0) {
+                        badgeEl.innerText = "DUE SOON"; badgeEl.className = "badge warning"; cardEl.className = "status-item border-orange";
+                    } else {
+                        badgeEl.innerText = "OK"; badgeEl.className = "badge active"; cardEl.className = "status-item border-green";
+                    }
+                }
+            });
+        }
+
+        window.clearRecentSites = function() {
+            localStorage.removeItem('recentSitesQueue');
+            const cachedData = JSON.parse(localStorage.getItem('aznsDataCacheV7'));
+            if (cachedData && cachedData.schedule) {
+                renderSchedule(cachedData.schedule);
+            }
+        };
+
+        // ==========================================
+        // 4. THE MASTER DATA SYNC 
+        // ==========================================
+        async function fetchCommandData() {
+            try {
+                const response = await fetch(APP_SCRIPT_URL);
+                const currentData = await response.json(); 
+                
+                const oldDataString = localStorage.getItem('aznsDataCacheV7');
+                let oldData = oldDataString ? JSON.parse(oldDataString) : null;
+
+                if (oldData && oldData.schedule && oldData.schedule.length > 0 && currentData.schedule) {
+                    let oldSiteMap = new Set(oldData.schedule.map(s => s.siteNumber));
+                    let newSites = currentData.schedule.filter(s => s.siteNumber && !oldSiteMap.has(s.siteNumber));
+                    
+                    if (newSites.length > 0) {
+                        let recentQueue = JSON.parse(localStorage.getItem('recentSitesQueue')) || [];
+                        let queueMap = new Set(recentQueue.map(s => s.siteNumber));
+                        
+                        newSites.forEach(ns => {
+                            if (!queueMap.has(ns.siteNumber)) {
+                                recentQueue.unshift(ns); 
+                            }
+                        });
+                        localStorage.setItem('recentSitesQueue', JSON.stringify(recentQueue));
+                    }
+                }
+                
+                localStorage.setItem('aznsDataCacheV7', JSON.stringify(currentData));
+
+                if (currentData.state) {
+                    editables.forEach(el => {
+                        if (document.activeElement !== el && currentData.state[el.id] !== undefined) {
+                            el.innerHTML = currentData.state[el.id];
+                        }
+                    });
+                    
+                    checks.forEach(cb => {
+                        if (currentData.state[cb.id] !== undefined) {
+                            cb.checked = (String(currentData.state[cb.id]).toLowerCase() === 'true');
+                        }
+                    });
+                    
+                    if (callNotes && document.activeElement !== callNotes && currentData.state['call-notes'] !== undefined) {
+                        callNotes.value = currentData.state['call-notes'];
+                    }
+
+                    checkFleetMaintenance();
+                    managePCIAudit();
+                    manageChatTriage();
+                }
+                
+                if (currentData.schedule && currentData.inventory) {
+                    renderThisWeeksSites(currentData.schedule);
+                    renderSchedule(currentData.schedule);
+                    renderInventory(currentData.inventory);
+                }
+                
+                const syncText = document.getElementById('sync-status');
+                syncText.textContent = `Last Sync: ${new Date().toLocaleTimeString()}`;
+                syncText.style.color = "var(--accent-green)";
+            } catch (error) {
+                console.error("API Sync Failed:", error);
+                document.getElementById('sync-status').textContent = "Sync Error";
+                document.getElementById('sync-status').style.color = "var(--accent-red)";
+            }
+        }
+
+        function getThisMonday() {
+            const today = new Date(); 
+            today.setHours(0,0,0,0);
+            const day = today.getDay(); 
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1); 
+            const thisMonday = new Date(today);
+            thisMonday.setDate(diff);
+            return thisMonday;
+        }
+
+        function renderThisWeeksSites(data) {
+            const container = document.getElementById('active-sites-container');
+            container.innerHTML = ''; 
+
+            const thisMonday = getThisMonday();
+            const nextMonday = new Date(thisMonday);
+            nextMonday.setDate(thisMonday.getDate() + 7);
+
+            const thisWeeksSites = data.filter(row => { 
+                let d = new Date(row.date); 
+                return !isNaN(d) && d >= thisMonday && d < nextMonday;
+            });
+
+            if (thisWeeksSites.length === 0) {
+                 container.innerHTML = '<div class="tech-info" style="padding: 10px; text-align: center;">No sites scheduled for this week.</div>'; 
+                 return;
+            }
+
+            thisWeeksSites.forEach(row => {
+                let dDisplay = row.date; let pDate = new Date(row.date);
+                if (!isNaN(pDate)) dDisplay = pDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                let site = row.siteNumber ? `Site #${row.siteNumber}` : 'TBD';
+                let tech = row.technician || 'Pending'; 
+                let status = row.status || 'Active';
+
+                container.innerHTML += `
+                <div class="status-item border-green" style="background: rgba(0, 214, 180, 0.05);">
+                    <div class="item-details">
+                        <div class="highlight">${site} | ${dDisplay}</div>
+                        <div class="tech-info"><b>Tech:</b> ${tech} | <b>Status:</b> ${status}</div>
+                    </div>
+                </div>`;
+            });
+        }
+
+        function renderSchedule(data) {
+            const container = document.getElementById('schedule-container');
+            container.innerHTML = ''; 
+            
+            const thisMonday = getThisMonday();
+            const nextMonday = new Date(thisMonday);
+            nextMonday.setDate(thisMonday.getDate() + 7);
+
+            const futureSites = data.filter(row => { 
+                let d = new Date(row.date); 
+                return isNaN(d) || d >= nextMonday; 
+            });
+
+            const recentQueue = JSON.parse(localStorage.getItem('recentSitesQueue')) || [];
+            if (recentQueue.length > 0) {
+                let recentHTML = `<div style="background: rgba(0, 214, 180, 0.05); border: 1px solid var(--accent-green); border-radius: 4px; padding: 6px; margin-bottom: 12px;">`;
+                recentHTML += `<div style="display: flex; justify-content: space-between; margin-bottom: 6px; border-bottom: 1px solid rgba(0,214,180,0.3); padding-bottom: 4px;">
+                    <strong style="color: var(--accent-green); font-size: 0.8rem;">★ NEW SITES ADDED</strong>
+                    <span class="dismiss-btn" style="cursor:pointer; font-size:0.7rem; color:var(--text-muted); transition: 0.2s;" onclick="clearRecentSites()">Dismiss All ✕</span>
+                </div>`;
+                
+                recentQueue.forEach(row => {
+                    let dDisplay = row.date; let pDate = new Date(row.date);
+                    if (!isNaN(pDate)) dDisplay = pDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    let site = row.siteNumber ? `Site #${row.siteNumber}` : 'TBD';
+                    
+                    recentHTML += `
+                    <div class="status-item" style="border-left: 3px solid var(--accent-green); margin-bottom: 4px; background: rgba(0,0,0,0.2);">
+                        <div class="item-details">
+                            <div class="highlight">${site} | ${dDisplay}</div>
+                            <div class="tech-info"><b>Tech:</b> ${row.technician || 'Pending'} | <b>Status:</b> ${row.status || 'Active'}</div>
+                        </div>
+                    </div>`;
+                });
+                recentHTML += `</div>`;
+                container.innerHTML += recentHTML;
+            }
+
+            if (futureSites.length === 0 && recentQueue.length === 0) {
+                 container.innerHTML += '<div class="tech-info" style="padding: 10px; text-align: center;">No upcoming scheduled sites.</div>'; return;
+            }
+
+            const groups = {};
+            futureSites.forEach(row => {
+                let parsedDate = new Date(row.date);
+                let weekKey, label;
+                if (isNaN(parsedDate)) { weekKey = 9999999999999; label = "TBD Dates"; } 
+                else {
+                    const day = parsedDate.getDay(); const diff = parsedDate.getDate() - day + (day === 0 ? -6 : 1); 
+                    const monday = new Date(parsedDate.setDate(diff)); monday.setHours(0,0,0,0);
+                    weekKey = monday.getTime(); label = `Week of ${monday.toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}`;
+                }
+                if (!groups[weekKey]) groups[weekKey] = { label: label, items: [] };
+                groups[weekKey].items.push(row);
+            });
+
+            Object.keys(groups).sort((a,b) => a - b).forEach((weekKey, index) => {
+                let groupHTML = '';
+                groups[weekKey].items.forEach(row => {
+                    let dDisplay = row.date; let pDate = new Date(row.date);
+                    if (!isNaN(pDate)) dDisplay = pDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    let site = row.siteNumber ? `Site #${row.siteNumber}` : 'TBD';
+                    let tech = row.technician || 'Pending'; let ams = row.amsPallet || 'N/A'; let status = row.status || 'Active';
+
+                    groupHTML += `
+                    <div class="status-item border-blue" style="background: rgba(0,0,0,0.1); border-left-color: #3b3b54;">
+                        <div class="item-details">
+                            <div class="highlight">${site} | Date: ${dDisplay}</div>
+                            <div class="tech-info"><b>Tech:</b> ${tech} | <b>AMS:</b> ${ams} | <b>Status:</b> ${status}</div>
+                        </div>
+                    </div>`;
+                });
+
+                container.innerHTML += `<details><summary>${groups[weekKey].label}</summary><div style="margin-top: 6px;">${groupHTML}</div></details>`;
+            });
+        }
+
+        function renderInventory(data) {
+            const container = document.getElementById('inventory-container');
+            container.innerHTML = ''; 
+            if (!data || data.length === 0) { container.innerHTML = '<div class="tech-info" style="padding: 10px; text-align: center;">No inventory data found.</div>'; return; }
+
+            let desiredRow = data.find(r => r.tech && r.tech.includes('Desired Amounts'));
+            let t_cable = desiredRow ? (parseInt(desiredRow.cableBoxes) || 0) * 0.5 : 0;
+            let t_rj45 = desiredRow ? (parseInt(desiredRow.rj45) || 0) * 0.5 : 0;
+            let t_jacks = desiredRow ? (parseInt(desiredRow.jacks) || 0) * 0.5 : 0;
+            let t_jHooks = desiredRow ? (parseInt(desiredRow.jHooks) || 0) * 0.5 : 0;
+            let t_patchPanels = desiredRow ? (parseInt(desiredRow.patchPanels) || 0) * 0.5 : 0;
+            let t_labelTape = desiredRow ? (parseInt(desiredRow.labelTape) || 0) * 0.5 : 0;
+
+            let onHandRow = data.find(r => r.tech && r.tech.includes('Current On-hand Inventory'));
+            let techRows = data.filter(r => r.tech && !r.tech.includes('Current On-hand Inventory') && !r.tech.includes('Desired Amounts'));
+
+            function buildRowHTML(row) {
+                const cable = parseInt(row.cableBoxes, 10) || 0; const rj45 = parseInt(row.rj45, 10) || 0;
+                const jacks = parseInt(row.jacks, 10) || 0; const jHooks = parseInt(row.jHooks, 10) || 0;
+                const patchPanels = parseInt(row.patchPanels, 10) || 0; const labelTape = parseInt(row.labelTape, 10) || 0;
+
+                const isRef = row.tech.includes('Desired Amounts') || row.tech.includes('Current On-hand Inventory');
+                if (cable === 0 && rj45 === 0 && jacks === 0 && jHooks === 0 && patchPanels === 0 && labelTape === 0 && !isRef) return ''; 
+
+                let dateDisplay = "N/A"; let parsedDate = new Date(row.lastUpdated);
+                if (!isNaN(parsedDate)) dateDisplay = parsedDate.toLocaleDateString('en-US');
+
+                const cStyle = (cable < t_cable && !isRef) ? 'color: var(--accent-red);' : '';
+                const rStyle = (rj45 < t_rj45 && !isRef) ? 'color: var(--accent-red);' : '';
+                const jStyle = (jacks < t_jacks && !isRef) ? 'color: var(--accent-red);' : '';
+                const jhStyle = (jHooks < t_jHooks && !isRef) ? 'color: var(--accent-red);' : '';
+                const pStyle = (patchPanels < t_patchPanels && !isRef) ? 'color: var(--accent-red);' : '';
+                const tStyle = (labelTape < t_labelTape && !isRef) ? 'color: var(--accent-red);' : '';
+
+                let laptopStr = row.azLaptop ? `<span>AZ Laptop:</span> <b>${row.azLaptop}</b>` : '';
+                if (isRef && !row.azLaptop) laptopStr = '';
+
+                return `
+                <div class="status-item border-orange" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                    <div style="display: flex; justify-content: space-between; width: 100%;">
+                        <div class="highlight">${row.tech}</div>
+                        <div class="tech-info" style="font-size: 0.65rem; color: var(--accent-orange);">Updated: ${dateDisplay}</div>
+                    </div>
+                    <div class="inv-grid">
+                        <div><span>Cable Box:</span> <b style="${cStyle}">${row.cableBoxes}</b></div>
+                        <div><span>RJ45 Tips:</span> <b style="${rStyle}">${row.rj45}</b></div>
+                        <div><span>Jacks:</span> <b style="${jStyle}">${row.jacks}</b></div>
+                        <div><span>J-Hooks:</span> <b style="${jhStyle}">${row.jHooks}</b></div>
+                        <div><span>Patch Panels:</span> <b style="${pStyle}">${row.patchPanels}</b></div>
+                        <div><span>Label Tape:</span> <b style="${tStyle}">${row.labelTape}</b></div>
+                        <div style="grid-column: 1 / -1; margin-top: 4px; color: var(--accent-green);">${laptopStr}</div>
+                    </div>
+                </div>`;
+            }
+
+            let finalHTML = '';
+            if (onHandRow) finalHTML += buildRowHTML(onHandRow);
+            techRows.forEach(row => { finalHTML += buildRowHTML(row); });
+            if (desiredRow) finalHTML += buildRowHTML(desiredRow);
+
+            container.innerHTML = finalHTML;
+        }
+
+        fetchCommandData();
+        setInterval(fetchCommandData, 300000); 
+    </script>
+</body>
+</html>
