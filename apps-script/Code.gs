@@ -3,6 +3,7 @@
  * Bind this script to the "Live Dashboard" spreadsheet and deploy as a web app.
  */
 const SPREADSHEET_ID = '1Snz0D4WBgKX9P2PT8M6lyCzPw9F3LDk6ao1l30PX6xQ';
+const ARCHIVE_SPREADSHEET_ID = '16sdXMHsDKA979wli_IIwEiBE8xNeROtgsBAEwfCPJoE';
 const TAB = Object.freeze({
   TECHNICIANS: 'Technicians',
   LOG: 'Activity Log',
@@ -35,6 +36,132 @@ function getInitialState() {
 function getSharedState() {
   return buildState_();
 }
+
+// ==========================================
+// BACKGROUND TRIGGERS (NEW)
+// ==========================================
+
+/**
+ * Run this function ONCE manually from the Apps Script editor 
+ * to automatically create the scheduled background triggers.
+ */
+function setupTriggers() {
+  // Clear any existing triggers to avoid duplicates
+  const existing = ScriptApp.getProjectTriggers();
+  existing.forEach(t => ScriptApp.deleteTrigger(t));
+
+  // 1. Auto-Clock out every day between 5:00 AM and 6:00 AM
+  ScriptApp.newTrigger('scheduledDailyReset')
+    .timeBased()
+    .atHour(5)
+    .everyDays(1)
+    .create();
+
+  // 2. Archive old logs every Sunday around 2:00 AM
+  ScriptApp.newTrigger('archiveOldLogs')
+    .timeBased()
+    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
+    .atHour(2)
+    .create();
+}
+
+function scheduledDailyReset() {
+  return withWriteLock_(function () {
+    const sheet = getSheet_(TAB.TECHNICIANS);
+    const values = sheet.getDataRange().getValues();
+    const now = new Date();
+    let recentUpdates = false;
+
+    // Check if any active tech was updated in the last 4 hours
+    for (let i = 1; i < values.length; i += 1) {
+      if (!values[i][0]) continue;
+      const tech = rowToTechnician_(values[i]);
+      if (tech.updatedAt) {
+        const updateTime = new Date(tech.updatedAt);
+        if (now.getTime() - updateTime.getTime() < 4 * 60 * 60 * 1000) {
+          recentUpdates = true;
+          break; // Stop checking, someone is actively working
+        }
+      }
+    }
+
+    // Only run if no recent updates occurred
+    if (!recentUpdates) {
+      const nowIso = now.toISOString();
+      for (let i = 1; i < values.length; i += 1) {
+        if (!values[i][0]) continue;
+        const tech = rowToTechnician_(values[i]);
+        if (tech.archived) continue;
+        
+        tech.status = 'Not Started';
+        tech.shiftStart = '';
+        tech.lastUpdate = '';
+        tech.updatePausedMs = 0;
+        tech.updateDue = '';
+        tech.breakStart = '';
+        tech.shiftEnded = false;
+        tech.activeIssue = '';
+        tech.updatedAt = nowIso;
+        tech.updatedBy = 'System';
+        tech.version += 1;
+        values[i] = technicianToRow_(tech);
+      }
+      if (values.length > 1) sheet.getRange(2, 1, values.length - 1, TECH_HEADERS.length).setValues(values.slice(1));
+      appendSystemLog_('Automated daily reset completed at 5:00 AM', 'reset', 'Triggered by inactivity', 'System');
+      SpreadsheetApp.flush();
+    }
+  });
+}
+
+function archiveOldLogs() {
+  return withWriteLock_(function () {
+    const sheet = getSheet_(TAB.LOG);
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return; // Only headers
+
+    const now = new Date();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const rowsToArchive = [];
+    const headers = data[0];
+    
+    // Logs append downward. Scan from top (oldest) downward.
+    let firstKeepIndex = 1; 
+    for (let i = 1; i < data.length; i++) {
+      const timestamp = new Date(data[i][1]); // Column B is timestampUtc
+      if (now.getTime() - timestamp.getTime() > thirtyDaysMs) {
+        rowsToArchive.push(data[i]);
+      } else {
+        firstKeepIndex = i; // Found the first row that is newer than 30 days
+        break; 
+      }
+    }
+
+    if (rowsToArchive.length > 0) {
+      const archiveDb = SpreadsheetApp.openById(ARCHIVE_SPREADSHEET_ID);
+      let archiveSheet = archiveDb.getSheetByName('Archive Log');
+      
+      if (!archiveSheet) {
+        archiveSheet = archiveDb.insertSheet('Archive Log');
+        archiveSheet.appendRow(headers);
+      }
+      
+      // Append old rows to archive sheet
+      archiveSheet.getRange(archiveSheet.getLastRow() + 1, 1, rowsToArchive.length, rowsToArchive[0].length).setValues(rowsToArchive);
+      
+      // Delete rows from the live sheet (deleting from row 2 downwards)
+      const numToDelete = firstKeepIndex - 1;
+      if (numToDelete > 0) {
+        sheet.deleteRows(2, numToDelete);
+      }
+      appendSystemLog_(`Archived ${rowsToArchive.length} entries older than 30 days`, 'archive', '', 'System');
+    }
+  });
+}
+
+
+// ==========================================
+// CORE FUNCTIONS
+// ==========================================
 
 function mutateTechnician(request) {
   request = request || {};
@@ -197,7 +324,7 @@ function mutateTechnician(request) {
 
 function addTechnician(name, actor) {
   return withWriteLock_(function () {
-    const viewer = requireAdmin_();
+    const viewer = currentViewer_();
     name = cleanText_(name, 100);
     actor = viewer.name;
     if (!name) throw new Error('Enter a technician name.');
