@@ -217,8 +217,11 @@ function mutateTechnician(request) {
         const selectedUpdate = new Date(request.value);
         if (isNaN(selectedUpdate.getTime())) throw new Error('The last update time is invalid.');
         tech.lastUpdate = selectedUpdate.toISOString();
+        // A new update begins a new two-hour cycle. Completed lunch time from
+        // the previous cycle must not be added to the new deadline.
+        tech.updatePausedMs = 0;
         const activePauseMs = tech.breakStart && tech.status === 'On Break'
-          ? Math.max(0, now.getTime() - new Date(tech.breakStart).getTime())
+          ? Math.max(0, now.getTime() - Math.max(new Date(tech.breakStart).getTime(), selectedUpdate.getTime()))
           : 0;
         tech.updateDue = new Date(
           addMinutes_(selectedUpdate, settings.updateMinutes).getTime() + tech.updatePausedMs + activePauseMs
@@ -236,7 +239,10 @@ function mutateTechnician(request) {
         break;
       case 'endBreak':
         if (tech.breakStart) {
-          tech.updatePausedMs += Math.max(0, now.getTime() - new Date(tech.breakStart).getTime());
+          const pauseStart = tech.lastUpdate
+            ? Math.max(new Date(tech.breakStart).getTime(), new Date(tech.lastUpdate).getTime())
+            : new Date(tech.breakStart).getTime();
+          tech.updatePausedMs += Math.max(0, now.getTime() - pauseStart);
         }
         tech.breakStart = '';
         tech.updateDue = tech.lastUpdate
@@ -312,6 +318,9 @@ function mutateTechnician(request) {
         throw new Error('Unsupported technician action.');
     }
 
+    if ((action === 'confirmUpdate' || action === 'setLastUpdate') && technicianIsOvertime_(tech, settings, now)) {
+      logAction += ' · Overtime';
+    }
     tech.updatedAt = nowIso;
     tech.updatedBy = actor;
     tech.version += 1;
@@ -587,7 +596,10 @@ function normalizeUpdateClock_(tech, settings) {
   if (!tech.lastUpdate && tech.shiftStart) tech.lastUpdate = tech.shiftStart;
   tech.updatePausedMs = Math.max(0, Number(tech.updatePausedMs || 0));
   const activePauseMs = tech.breakStart && tech.status === 'On Break'
-    ? Math.max(0, Date.now() - new Date(tech.breakStart).getTime())
+    ? Math.max(0, Date.now() - Math.max(
+        new Date(tech.breakStart).getTime(),
+        tech.lastUpdate ? new Date(tech.lastUpdate).getTime() : 0
+      ))
     : 0;
   tech.updateDue = tech.lastUpdate && !tech.shiftEnded
     ? new Date(addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).getTime() + tech.updatePausedMs + activePauseMs).toISOString()
@@ -696,6 +708,12 @@ function withWriteLock_(callback) {
 }
 
 function addMinutes_(date, minutes) { return new Date(date.getTime() + Number(minutes) * 60000); }
+function technicianIsOvertime_(tech, settings, at) {
+  if (!tech.shiftStart || tech.shiftEnded) return false;
+  const shiftStart = new Date(tech.shiftStart);
+  if (isNaN(shiftStart.getTime())) return false;
+  return at.getTime() >= addMinutes_(shiftStart, settings.shiftMinutes).getTime();
+}
 function cleanText_(value, maxLength) { return String(value == null ? '' : value).trim().slice(0, maxLength); }
 function numberSetting_(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
 function asBoolean_(value) { return value === true || String(value).toLowerCase() === 'true'; }
