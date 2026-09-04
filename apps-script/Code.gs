@@ -12,6 +12,7 @@ const TAB = Object.freeze({
 });
 const ADMIN_USERS_PROPERTY = 'ADMIN_USERS';
 const PROTECTED_ADMIN_NAMES = Object.freeze(['Jeremy Miller', 'David Lowe']);
+const PRESENCE_TIMEOUT_MS = 90 * 1000;
 
 const TECH_HEADERS = Object.freeze([
   'Technician ID', 'Name', 'Active', 'Card Visible', 'Status',
@@ -27,13 +28,16 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-function getInitialState() {
+function getInitialState(operator) {
   ensureTechnicianSchema_();
   ensureSettingsSchema_();
+  ensureStaffSchema_();
+  recordPresence_(operator);
   return buildState_();
 }
 
-function getSharedState() {
+function getSharedState(operator) {
+  recordPresence_(operator);
   return buildState_();
 }
 
@@ -91,7 +95,7 @@ function scheduledDailyReset() {
       for (let i = 1; i < values.length; i += 1) {
         if (!values[i][0]) continue;
         const tech = rowToTechnician_(values[i]);
-        if (tech.archived) continue;
+        if (tech.archived || (!tech.active && tech.status === 'Site Complete')) continue;
         
         tech.status = 'Not Started';
         tech.shiftStart = '';
@@ -239,10 +243,10 @@ function mutateTechnician(request) {
         break;
       case 'endBreak':
         if (tech.breakStart) {
-          const pauseStart = tech.lastUpdate
+          const pauseStartMs = tech.lastUpdate
             ? Math.max(new Date(tech.breakStart).getTime(), new Date(tech.lastUpdate).getTime())
             : new Date(tech.breakStart).getTime();
-          tech.updatePausedMs += Math.max(0, now.getTime() - pauseStart);
+          tech.updatePausedMs += Math.max(0, now.getTime() - pauseStartMs);
         }
         tech.breakStart = '';
         tech.updateDue = tech.lastUpdate
@@ -262,6 +266,20 @@ function mutateTechnician(request) {
         tech.status = 'Off Shift';
         logAction = 'Shift Ended';
         logType = 'end';
+        break;
+      case 'completeSite':
+        tech.active = false;
+        tech.cardVisible = false;
+        tech.status = 'Site Complete';
+        tech.shiftStart = '';
+        tech.lastUpdate = '';
+        tech.updatePausedMs = 0;
+        tech.updateDue = '';
+        tech.breakStart = '';
+        tech.shiftEnded = true;
+        tech.activeIssue = '';
+        logAction = 'Site Completed';
+        logType = 'site-complete';
         break;
       case 'setManualShift': {
         const manual = new Date(request.value);
@@ -288,7 +306,13 @@ function mutateTechnician(request) {
         break;
       case 'setActive':
         tech.active = asBoolean_(request.value);
-        if (tech.active) tech.cardVisible = true;
+        if (tech.active) {
+          tech.cardVisible = true;
+          if (tech.status === 'Site Complete') {
+            tech.status = 'Not Started';
+            tech.shiftEnded = false;
+          }
+        }
         logAction = tech.active ? 'Technician activated' : 'Technician deactivated';
         logType = 'roster';
         break;
@@ -404,7 +428,7 @@ function addCommandStaff(name, role) {
       sheet.getRange(rowNumber, 2, 1, 2).setValues([[role, true]]);
       return { ok: true, state: buildState_() };
     }
-    sheet.appendRow([name, role, true]);
+    sheet.appendRow([name, role, true, '']);
     return { ok: true, state: buildState_() };
   });
 }
@@ -469,7 +493,7 @@ function runDailyReset(actor) {
     for (let i = 1; i < values.length; i += 1) {
       if (!values[i][0]) continue;
       const tech = rowToTechnician_(values[i]);
-      if (tech.archived) continue;
+      if (tech.archived || (!tech.active && tech.status === 'Site Complete')) continue;
       tech.status = 'Not Started';
       tech.shiftStart = '';
       tech.lastUpdate = '';
@@ -539,13 +563,30 @@ function readTechnicians_() {
 
 function readStaff_() {
   const values = getSheet_(TAB.STAFF).getDataRange().getValues();
+  const now = Date.now();
   return values.slice(1).filter(function (row) { return row[0] && asBoolean_(row[2]); }).map(function (row) {
     const name = String(row[0]);
+    const lastSeenUtc = isoValue_(row[3]);
+    const lastSeen = lastSeenUtc ? new Date(lastSeenUtc).getTime() : 0;
     const isProtectedAdmin = PROTECTED_ADMIN_NAMES.some(function (adminName) {
       return adminName.toLowerCase() === name.toLowerCase();
     });
-    return { name: name, role: isProtectedAdmin ? 'Admin' : String(row[1] || 'Staff') };
+    return {
+      name: name,
+      role: isProtectedAdmin ? 'Admin' : String(row[1] || 'Staff'),
+      lastSeenUtc: lastSeenUtc,
+      online: Boolean(lastSeen && now - lastSeen <= PRESENCE_TIMEOUT_MS)
+    };
   });
+}
+
+function recordPresence_(operator) {
+  operator = cleanText_(operator, 100);
+  if (!operator) return;
+  const sheet = getSheet_(TAB.STAFF);
+  const rowNumber = findStaffRow_(sheet, operator);
+  if (!rowNumber || !asBoolean_(sheet.getRange(rowNumber, 3).getValue())) return;
+  sheet.getRange(rowNumber, 4).setValue(new Date().toISOString());
 }
 
 function readRecentActivity_(limit) {
@@ -713,6 +754,12 @@ function technicianIsOvertime_(tech, settings, at) {
   const shiftStart = new Date(tech.shiftStart);
   if (isNaN(shiftStart.getTime())) return false;
   return at.getTime() >= addMinutes_(shiftStart, settings.shiftMinutes).getTime();
+}
+
+function ensureStaffSchema_() {
+  const sheet = getSheet_(TAB.STAFF);
+  const presenceHeader = String(sheet.getRange(1, 4).getDisplayValue() || '').trim();
+  if (!presenceHeader) sheet.getRange(1, 4).setValue('Last Seen UTC');
 }
 function cleanText_(value, maxLength) { return String(value == null ? '' : value).trim().slice(0, maxLength); }
 function numberSetting_(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
