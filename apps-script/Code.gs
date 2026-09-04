@@ -372,6 +372,10 @@ function addTechnician(name, actor) {
       match.active = true;
       match.cardVisible = true;
       match.archived = false;
+      if (match.status === 'Site Complete') {
+        match.status = 'Not Started';
+        match.shiftEnded = false;
+      }
       match.updatedAt = new Date().toISOString();
       match.updatedBy = actor;
       match.version += 1;
