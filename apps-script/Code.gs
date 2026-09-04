@@ -17,7 +17,7 @@ const TECH_HEADERS = Object.freeze([
   'Shift Start UTC', 'Update Due UTC', 'Break Start UTC', 'Shift Ended',
   'Active Issue', 'Last Resolution', 'Last Resolution UTC',
   'Updated At UTC', 'Updated By', 'Version', 'Last Update UTC',
-  'Update Paused Milliseconds'
+  'Update Paused Milliseconds', 'Archived'
 ]);
 
 function doGet() {
@@ -211,6 +211,7 @@ function addTechnician(name, actor) {
       const rowNumber = findTechnicianRow_(sheet, match.id);
       match.active = true;
       match.cardVisible = true;
+      match.archived = false;
       match.updatedAt = new Date().toISOString();
       match.updatedBy = actor;
       match.version += 1;
@@ -222,7 +223,7 @@ function addTechnician(name, actor) {
     const tech = {
       id: id, name: name, active: true, cardVisible: true, status: 'Not Started',
       shiftStart: '', updateDue: '', breakStart: '', shiftEnded: false,
-      lastUpdate: '', updatePausedMs: 0,
+      lastUpdate: '', updatePausedMs: 0, archived: false,
       activeIssue: '', lastResolution: '', lastResolutionUtc: '',
       updatedAt: new Date().toISOString(), updatedBy: actor, version: 1
     };
@@ -242,6 +243,7 @@ function removeTechnician(techId) {
     const tech = rowToTechnician_(range.getValues()[0]);
     tech.active = false;
     tech.cardVisible = false;
+    tech.archived = true;
     tech.updatedAt = new Date().toISOString();
     tech.updatedBy = viewer.name;
     tech.version += 1;
@@ -331,6 +333,7 @@ function runDailyReset(actor) {
     for (let i = 1; i < values.length; i += 1) {
       if (!values[i][0]) continue;
       const tech = rowToTechnician_(values[i]);
+      if (tech.archived) continue;
       tech.status = 'Not Started';
       tech.shiftStart = '';
       tech.lastUpdate = '';
@@ -435,7 +438,7 @@ function rowToTechnician_(row) {
     lastResolution: String(row[10] || ''), lastResolutionUtc: isoValue_(row[11]),
     updatedAt: isoValue_(row[12]), updatedBy: String(row[13] || ''),
     version: Number(row[14] || 0), lastUpdate: isoValue_(row[15]),
-    updatePausedMs: Math.max(0, Number(row[16] || 0))
+    updatePausedMs: Math.max(0, Number(row[16] || 0)), archived: asBoolean_(row[17])
   };
 }
 
@@ -445,7 +448,7 @@ function technicianToRow_(tech) {
     tech.shiftStart || '', tech.updateDue || '', tech.breakStart || '', Boolean(tech.shiftEnded),
     tech.activeIssue || '', tech.lastResolution || '', tech.lastResolutionUtc || '',
     tech.updatedAt || '', tech.updatedBy || '', Number(tech.version || 0), tech.lastUpdate || '',
-    Math.max(0, Number(tech.updatePausedMs || 0))
+    Math.max(0, Number(tech.updatePausedMs || 0)), Boolean(tech.archived)
   ];
 }
 
