@@ -16,7 +16,8 @@ const TECH_HEADERS = Object.freeze([
   'Technician ID', 'Name', 'Active', 'Card Visible', 'Status',
   'Shift Start UTC', 'Update Due UTC', 'Break Start UTC', 'Shift Ended',
   'Active Issue', 'Last Resolution', 'Last Resolution UTC',
-  'Updated At UTC', 'Updated By', 'Version', 'Last Update UTC'
+  'Updated At UTC', 'Updated By', 'Version', 'Last Update UTC',
+  'Update Paused Milliseconds'
 ]);
 
 function doGet() {
@@ -27,6 +28,7 @@ function doGet() {
 
 function getInitialState() {
   ensureTechnicianSchema_();
+  ensureSettingsSchema_();
   return buildState_();
 }
 
@@ -64,6 +66,7 @@ function mutateTechnician(request) {
       case 'beginShift':
         tech.shiftStart = nowIso;
         tech.lastUpdate = nowIso;
+        tech.updatePausedMs = 0;
         tech.updateDue = addMinutes_(now, settings.updateMinutes).toISOString();
         tech.breakStart = '';
         tech.shiftEnded = false;
@@ -72,8 +75,10 @@ function mutateTechnician(request) {
         logType = 'start';
         break;
       case 'confirmUpdate':
+        if (tech.status === 'On Break') throw new Error('Return from lunch before recording an update.');
         if (!tech.shiftStart) tech.shiftStart = nowIso;
         tech.lastUpdate = nowIso;
+        tech.updatePausedMs = 0;
         tech.updateDue = addMinutes_(now, settings.updateMinutes).toISOString();
         tech.breakStart = '';
         tech.shiftEnded = false;
@@ -88,7 +93,13 @@ function mutateTechnician(request) {
         logType = 'break-start';
         break;
       case 'endBreak':
+        if (tech.breakStart) {
+          tech.updatePausedMs += Math.max(0, now.getTime() - new Date(tech.breakStart).getTime());
+        }
         tech.breakStart = '';
+        tech.updateDue = tech.lastUpdate
+          ? new Date(addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).getTime() + tech.updatePausedMs).toISOString()
+          : '';
         tech.status = tech.activeIssue ? 'Ticket Open' : 'On Shift';
         logAction = 'Break ended';
         logType = 'break-end';
@@ -96,6 +107,7 @@ function mutateTechnician(request) {
       case 'endShift':
         tech.shiftStart = '';
         tech.lastUpdate = '';
+        tech.updatePausedMs = 0;
         tech.updateDue = '';
         tech.breakStart = '';
         tech.shiftEnded = true;
@@ -108,8 +120,11 @@ function mutateTechnician(request) {
         if (isNaN(manual.getTime())) throw new Error('The shift start time is invalid.');
         const alreadyStarted = Boolean(tech.shiftStart) && !tech.shiftEnded;
         tech.shiftStart = manual.toISOString();
-        if (!alreadyStarted || !tech.lastUpdate) tech.lastUpdate = manual.toISOString();
-        tech.updateDue = addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).toISOString();
+        if (!alreadyStarted || !tech.lastUpdate) {
+          tech.lastUpdate = manual.toISOString();
+          tech.updatePausedMs = 0;
+        }
+        tech.updateDue = new Date(addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).getTime() + tech.updatePausedMs).toISOString();
         tech.breakStart = '';
         tech.shiftEnded = false;
         tech.status = 'On Shift';
@@ -192,7 +207,7 @@ function addTechnician(name, actor) {
     const tech = {
       id: id, name: name, active: true, cardVisible: true, status: 'Not Started',
       shiftStart: '', updateDue: '', breakStart: '', shiftEnded: false,
-      lastUpdate: '',
+      lastUpdate: '', updatePausedMs: 0,
       activeIssue: '', lastResolution: '', lastResolutionUtc: '',
       updatedAt: new Date().toISOString(), updatedBy: actor, version: 1
     };
@@ -265,6 +280,7 @@ function updateSettings(values, actor) {
     const rules = {
       update_minutes: [Number(values.updateMinutes), 5, 1440],
       shift_minutes: [Number(values.shiftMinutes), 30, 1440],
+      break_minutes: [Number(values.breakMinutes), 15, 180],
       warning_minutes: [Number(values.warningMinutes), 1, 180],
       critical_minutes: [Number(values.criticalMinutes), 1, 120],
       polling_seconds: [Number(values.pollingSeconds), 5, 300]
@@ -303,6 +319,7 @@ function runDailyReset(actor) {
       tech.status = 'Not Started';
       tech.shiftStart = '';
       tech.lastUpdate = '';
+      tech.updatePausedMs = 0;
       tech.updateDue = '';
       tech.breakStart = '';
       tech.shiftEnded = false;
@@ -352,6 +369,7 @@ function readSettings_() {
   return {
     updateMinutes: numberSetting_(map.update_minutes, 120),
     shiftMinutes: numberSetting_(map.shift_minutes, 480),
+    breakMinutes: numberSetting_(map.break_minutes, 60),
     warningMinutes: numberSetting_(map.warning_minutes, 15),
     criticalMinutes: numberSetting_(map.critical_minutes, 5),
     pollingSeconds: numberSetting_(map.polling_seconds, 10),
@@ -401,7 +419,8 @@ function rowToTechnician_(row) {
     shiftEnded: asBoolean_(row[8]), activeIssue: String(row[9] || ''),
     lastResolution: String(row[10] || ''), lastResolutionUtc: isoValue_(row[11]),
     updatedAt: isoValue_(row[12]), updatedBy: String(row[13] || ''),
-    version: Number(row[14] || 0), lastUpdate: isoValue_(row[15])
+    version: Number(row[14] || 0), lastUpdate: isoValue_(row[15]),
+    updatePausedMs: Math.max(0, Number(row[16] || 0))
   };
 }
 
@@ -410,7 +429,8 @@ function technicianToRow_(tech) {
     tech.id, tech.name, Boolean(tech.active), Boolean(tech.cardVisible), tech.status,
     tech.shiftStart || '', tech.updateDue || '', tech.breakStart || '', Boolean(tech.shiftEnded),
     tech.activeIssue || '', tech.lastResolution || '', tech.lastResolutionUtc || '',
-    tech.updatedAt || '', tech.updatedBy || '', Number(tech.version || 0), tech.lastUpdate || ''
+    tech.updatedAt || '', tech.updatedBy || '', Number(tech.version || 0), tech.lastUpdate || '',
+    Math.max(0, Number(tech.updatePausedMs || 0))
   ];
 }
 
@@ -420,8 +440,12 @@ function normalizeUpdateClock_(tech, settings) {
     if (!isNaN(due.getTime())) tech.lastUpdate = addMinutes_(due, -settings.updateMinutes).toISOString();
   }
   if (!tech.lastUpdate && tech.shiftStart) tech.lastUpdate = tech.shiftStart;
+  tech.updatePausedMs = Math.max(0, Number(tech.updatePausedMs || 0));
+  const activePauseMs = tech.breakStart && tech.status === 'On Break'
+    ? Math.max(0, Date.now() - new Date(tech.breakStart).getTime())
+    : 0;
   tech.updateDue = tech.lastUpdate && !tech.shiftEnded
-    ? addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).toISOString()
+    ? new Date(addMinutes_(new Date(tech.lastUpdate), settings.updateMinutes).getTime() + tech.updatePausedMs + activePauseMs).toISOString()
     : '';
   return tech;
 }
@@ -498,12 +522,20 @@ function getSheet_(name) {
 
 function ensureTechnicianSchema_() {
   const sheet = getSheet_(TAB.TECHNICIANS);
-  const column = TECH_HEADERS.length;
-  const current = String(sheet.getRange(1, column).getDisplayValue() || '').trim();
-  if (current && current !== TECH_HEADERS[column - 1]) {
-    throw new Error('The Technicians sheet already uses column ' + column + '. Add a new blank column before updating the dashboard.');
+  for (let column = 1; column <= TECH_HEADERS.length; column += 1) {
+    const current = String(sheet.getRange(1, column).getDisplayValue() || '').trim();
+    if (current && current !== TECH_HEADERS[column - 1]) {
+      throw new Error('The Technicians sheet has an unexpected heading in column ' + column + ': ' + current);
+    }
+    if (!current) sheet.getRange(1, column).setValue(TECH_HEADERS[column - 1]);
   }
-  if (!current) sheet.getRange(1, column).setValue(TECH_HEADERS[column - 1]);
+}
+
+function ensureSettingsSchema_() {
+  const sheet = getSheet_(TAB.SETTINGS);
+  const values = sheet.getDataRange().getDisplayValues();
+  const hasBreakSetting = values.slice(1).some(function (row) { return String(row[0]).trim() === 'break_minutes'; });
+  if (!hasBreakSetting) sheet.appendRow(['break_minutes', 60]);
 }
 
 let DATABASE_;
