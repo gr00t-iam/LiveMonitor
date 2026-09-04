@@ -9,10 +9,7 @@ const TAB = Object.freeze({
   SETTINGS: 'Settings',
   STAFF: 'Command Staff'
 });
-const ADMIN_EMAILS = Object.freeze([
-  'jmiller@rr-solutions.us',
-  'dlowe@rr-solutions.us'
-]);
+const ADMIN_USERS_PROPERTY = 'ADMIN_USERS';
 const PROTECTED_ADMIN_NAMES = Object.freeze(['Jeremy Miller', 'David Lowe']);
 
 const TECH_HEADERS = Object.freeze([
@@ -437,15 +434,29 @@ function findStaffRow_(sheet, name) {
 
 function currentViewer_() {
   const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
-  const names = {
-    'jmiller@rr-solutions.us': 'Jeremy Miller',
-    'dlowe@rr-solutions.us': 'David Lowe'
-  };
+  const admins = adminDirectory_();
   return {
     email: email,
-    name: names[email] || 'Team member',
-    isAdmin: ADMIN_EMAILS.indexOf(email) !== -1
+    name: admins[email] || 'Team member',
+    isAdmin: Boolean(admins[email])
   };
+}
+
+function adminDirectory_() {
+  const raw = PropertiesService.getScriptProperties().getProperty(ADMIN_USERS_PROPERTY) || '';
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    const admins = {};
+    Object.keys(parsed || {}).forEach(function (email) {
+      const normalizedEmail = String(email).trim().toLowerCase();
+      const name = cleanText_(parsed[email], 100);
+      if (normalizedEmail && name) admins[normalizedEmail] = name;
+    });
+    return admins;
+  } catch (error) {
+    return {};
+  }
 }
 
 function requireAdmin_() {
