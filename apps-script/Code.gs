@@ -9,6 +9,11 @@ const TAB = Object.freeze({
   SETTINGS: 'Settings',
   STAFF: 'Command Staff'
 });
+const ADMIN_EMAILS = Object.freeze([
+  'jmiller@rr-solutions.us',
+  'dlowe@rr-solutions.us'
+]);
+const PROTECTED_ADMIN_NAMES = Object.freeze(['Jeremy Miller', 'David Lowe']);
 
 const TECH_HEADERS = Object.freeze([
   'Technician ID', 'Name', 'Active', 'Card Visible', 'Status',
@@ -51,6 +56,7 @@ function mutateTechnician(request) {
     const nowIso = now.toISOString();
     const actor = cleanText_(request.actor || 'Team member', 80);
     const action = String(request.action || '');
+    if (action === 'setActive' || action === 'setVisible') requireAdmin_();
     let logAction = '';
     let logType = action;
     let logNote = cleanText_(request.note || '', 1000);
@@ -158,13 +164,26 @@ function mutateTechnician(request) {
 
 function addTechnician(name, actor) {
   return withWriteLock_(function () {
+    const viewer = requireAdmin_();
     name = cleanText_(name, 100);
-    actor = cleanText_(actor || 'Team member', 80);
+    actor = viewer.name;
     if (!name) throw new Error('Enter a technician name.');
     const sheet = getSheet_(TAB.TECHNICIANS);
     const existing = readTechnicians_();
-    if (existing.some(function (t) { return t.name.toLowerCase() === name.toLowerCase(); })) {
+    const match = existing.find(function (t) { return t.name.toLowerCase() === name.toLowerCase(); });
+    if (match && match.active) {
       throw new Error('That technician is already on the roster.');
+    }
+    if (match) {
+      const rowNumber = findTechnicianRow_(sheet, match.id);
+      match.active = true;
+      match.cardVisible = true;
+      match.updatedAt = new Date().toISOString();
+      match.updatedBy = actor;
+      match.version += 1;
+      sheet.getRange(rowNumber, 1, 1, TECH_HEADERS.length).setValues([technicianToRow_(match)]);
+      appendLog_(match, 'Restored to roster', 'roster', '', actor, match.updatedAt);
+      return { ok: true, state: buildState_() };
     }
     const id = 'tech-' + Utilities.getUuid();
     const tech = {
@@ -179,25 +198,66 @@ function addTechnician(name, actor) {
   });
 }
 
+function removeTechnician(techId) {
+  return withWriteLock_(function () {
+    const viewer = requireAdmin_();
+    const sheet = getSheet_(TAB.TECHNICIANS);
+    const rowNumber = findTechnicianRow_(sheet, cleanText_(techId, 100));
+    if (!rowNumber) throw new Error('Technician was not found. Refresh and try again.');
+    const range = sheet.getRange(rowNumber, 1, 1, TECH_HEADERS.length);
+    const tech = rowToTechnician_(range.getValues()[0]);
+    tech.active = false;
+    tech.cardVisible = false;
+    tech.updatedAt = new Date().toISOString();
+    tech.updatedBy = viewer.name;
+    tech.version += 1;
+    range.setValues([technicianToRow_(tech)]);
+    appendLog_(tech, 'Removed from roster', 'roster', '', viewer.name, tech.updatedAt);
+    return { ok: true, state: buildState_() };
+  });
+}
+
 function addCommandStaff(name, role) {
   return withWriteLock_(function () {
+    requireAdmin_();
     name = cleanText_(name, 100);
     role = role === 'Admin' ? 'Admin' : 'Staff';
     if (!name) throw new Error('Enter a staff name.');
     const sheet = getSheet_(TAB.STAFF);
-    const staff = readStaff_();
-    if (staff.some(function (s) { return s.name.toLowerCase() === name.toLowerCase(); })) {
+    const rowNumber = findStaffRow_(sheet, name);
+    if (rowNumber && asBoolean_(sheet.getRange(rowNumber, 3).getValue())) {
       throw new Error('That person is already listed.');
+    }
+    if (rowNumber) {
+      sheet.getRange(rowNumber, 2, 1, 2).setValues([[role, true]]);
+      return { ok: true, state: buildState_() };
     }
     sheet.appendRow([name, role, true]);
     return { ok: true, state: buildState_() };
   });
 }
 
+function removeCommandStaff(name) {
+  return withWriteLock_(function () {
+    requireAdmin_();
+    name = cleanText_(name, 100);
+    if (PROTECTED_ADMIN_NAMES.some(function (adminName) { return adminName.toLowerCase() === name.toLowerCase(); })) {
+      throw new Error('Jeremy Miller and David Lowe are protected administrators and cannot be removed here.');
+    }
+    const sheet = getSheet_(TAB.STAFF);
+    const rowNumber = findStaffRow_(sheet, name);
+    if (!rowNumber) throw new Error('Command staff member was not found. Refresh and try again.');
+    sheet.getRange(rowNumber, 3).setValue(false);
+    appendSystemLog_('Command staff removed', 'staff', name, currentViewer_().name);
+    return { ok: true, state: buildState_() };
+  });
+}
+
 function updateSettings(values, actor) {
   return withWriteLock_(function () {
+    const viewer = requireAdmin_();
     values = values || {};
-    actor = cleanText_(actor || 'Team member', 80);
+    actor = viewer.name;
     const rules = {
       update_minutes: [Number(values.updateMinutes), 5, 1440],
       shift_minutes: [Number(values.shiftMinutes), 30, 1440],
@@ -229,7 +289,7 @@ function updateSettings(values, actor) {
 
 function runDailyReset(actor) {
   return withWriteLock_(function () {
-    actor = cleanText_(actor || 'Team member', 80);
+    actor = requireAdmin_().name;
     const sheet = getSheet_(TAB.TECHNICIANS);
     const values = sheet.getDataRange().getValues();
     const nowIso = new Date().toISOString();
@@ -272,7 +332,8 @@ function buildState_() {
     technicians: technicians,
     activityLog: activityLog,
     settings: settings,
-    commandStaff: readStaff_()
+    commandStaff: readStaff_(),
+    viewer: currentViewer_()
   };
 }
 
@@ -299,7 +360,11 @@ function readTechnicians_() {
 function readStaff_() {
   const values = getSheet_(TAB.STAFF).getDataRange().getValues();
   return values.slice(1).filter(function (row) { return row[0] && asBoolean_(row[2]); }).map(function (row) {
-    return { name: String(row[0]), role: String(row[1] || 'Staff') };
+    const name = String(row[0]);
+    const isProtectedAdmin = PROTECTED_ADMIN_NAMES.some(function (adminName) {
+      return adminName.toLowerCase() === name.toLowerCase();
+    });
+    return { name: name, role: isProtectedAdmin ? 'Admin' : String(row[1] || 'Staff') };
   });
 }
 
@@ -358,6 +423,37 @@ function findTechnicianRow_(sheet, id) {
   const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
   for (let i = 0; i < ids.length; i += 1) if (ids[i][0] === id) return i + 2;
   return 0;
+}
+
+function findStaffRow_(sheet, name) {
+  if (!name || sheet.getLastRow() < 2) return 0;
+  const names = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+  const target = String(name).trim().toLowerCase();
+  for (let i = 0; i < names.length; i += 1) {
+    if (String(names[i][0]).trim().toLowerCase() === target) return i + 2;
+  }
+  return 0;
+}
+
+function currentViewer_() {
+  const email = String(Session.getActiveUser().getEmail() || '').trim().toLowerCase();
+  const names = {
+    'jmiller@rr-solutions.us': 'Jeremy Miller',
+    'dlowe@rr-solutions.us': 'David Lowe'
+  };
+  return {
+    email: email,
+    name: names[email] || 'Team member',
+    isAdmin: ADMIN_EMAILS.indexOf(email) !== -1
+  };
+}
+
+function requireAdmin_() {
+  const viewer = currentViewer_();
+  if (!viewer.isAdmin) {
+    throw new Error('Administrator access is required. Sign in as Jeremy Miller or David Lowe.');
+  }
+  return viewer;
 }
 
 function getSheet_(name) {
