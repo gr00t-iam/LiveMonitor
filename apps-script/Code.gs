@@ -31,7 +31,6 @@ function doGet() {
 function getInitialState(operator) {
   ensureTechnicianSchema_();
   ensureSettingsSchema_();
-  ensureStaffSchema_();
   recordPresence_(operator);
   return buildState_();
 }
@@ -432,7 +431,7 @@ function addCommandStaff(name, role) {
       sheet.getRange(rowNumber, 2, 1, 2).setValues([[role, true]]);
       return { ok: true, state: buildState_() };
     }
-    sheet.appendRow([name, role, true, '']);
+    sheet.appendRow([name, role, true]);
     return { ok: true, state: buildState_() };
   });
 }
@@ -567,10 +566,14 @@ function readTechnicians_() {
 
 function readStaff_() {
   const values = getSheet_(TAB.STAFF).getDataRange().getValues();
+  const activeRows = values.slice(1).filter(function (row) { return row[0] && asBoolean_(row[2]); });
+  const cache = CacheService.getScriptCache();
+  const keys = activeRows.map(function (row) { return presenceKey_(row[0]); });
+  const presence = keys.length ? cache.getAll(keys) : {};
   const now = Date.now();
-  return values.slice(1).filter(function (row) { return row[0] && asBoolean_(row[2]); }).map(function (row) {
+  return activeRows.map(function (row) {
     const name = String(row[0]);
-    const lastSeenUtc = isoValue_(row[3]);
+    const lastSeenUtc = presence[presenceKey_(name)] || '';
     const lastSeen = lastSeenUtc ? new Date(lastSeenUtc).getTime() : 0;
     const isProtectedAdmin = PROTECTED_ADMIN_NAMES.some(function (adminName) {
       return adminName.toLowerCase() === name.toLowerCase();
@@ -590,7 +593,11 @@ function recordPresence_(operator) {
   const sheet = getSheet_(TAB.STAFF);
   const rowNumber = findStaffRow_(sheet, operator);
   if (!rowNumber || !asBoolean_(sheet.getRange(rowNumber, 3).getValue())) return;
-  sheet.getRange(rowNumber, 4).setValue(new Date().toISOString());
+  CacheService.getScriptCache().put(presenceKey_(operator), new Date().toISOString(), 120);
+}
+
+function presenceKey_(name) {
+  return 'presence:' + String(name || '').trim().toLowerCase();
 }
 
 function readRecentActivity_(limit) {
@@ -760,11 +767,6 @@ function technicianIsOvertime_(tech, settings, at) {
   return at.getTime() >= addMinutes_(shiftStart, settings.shiftMinutes).getTime();
 }
 
-function ensureStaffSchema_() {
-  const sheet = getSheet_(TAB.STAFF);
-  const presenceHeader = String(sheet.getRange(1, 4).getDisplayValue() || '').trim();
-  if (!presenceHeader) sheet.getRange(1, 4).setValue('Last Seen UTC');
-}
 function cleanText_(value, maxLength) { return String(value == null ? '' : value).trim().slice(0, maxLength); }
 function numberSetting_(value, fallback) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
 function asBoolean_(value) { return value === true || String(value).toLowerCase() === 'true'; }
