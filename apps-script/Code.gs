@@ -86,6 +86,21 @@ function mutateTechnician(request) {
         logAction = 'Log Updated';
         logType = 'update';
         break;
+      case 'setLastUpdate': {
+        const selectedUpdate = new Date(request.value);
+        if (isNaN(selectedUpdate.getTime())) throw new Error('The last update time is invalid.');
+        tech.lastUpdate = selectedUpdate.toISOString();
+        const activePauseMs = tech.breakStart && tech.status === 'On Break'
+          ? Math.max(0, now.getTime() - new Date(tech.breakStart).getTime())
+          : 0;
+        tech.updateDue = new Date(
+          addMinutes_(selectedUpdate, settings.updateMinutes).getTime() + tech.updatePausedMs + activePauseMs
+        ).toISOString();
+        logAction = 'Last update time changed';
+        logType = 'last-update';
+        logNote = selectedUpdate.toISOString();
+        break;
+      }
       case 'startBreak':
         tech.breakStart = nowIso;
         tech.status = 'On Break';
