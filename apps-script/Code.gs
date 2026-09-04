@@ -57,7 +57,7 @@ function mutateTechnician(request) {
     const nowIso = now.toISOString();
     const actor = cleanText_(request.actor || 'Team member', 80);
     const action = String(request.action || '');
-    if (action === 'setActive' || action === 'setVisible') requireAdmin_();
+    if (action === 'setVisible' || (action === 'setActive' && !asBoolean_(request.value))) requireAdmin_();
     let logAction = '';
     let logType = action;
     let logNote = cleanText_(request.note || '', 1000);
@@ -149,12 +149,12 @@ function mutateTechnician(request) {
         break;
       }
       case 'setVisible':
-        tech.cardVisible = Boolean(request.value);
+        tech.cardVisible = asBoolean_(request.value);
         logAction = tech.cardVisible ? 'Technician card shown' : 'Technician card hidden';
         logType = 'display';
         break;
       case 'setActive':
-        tech.active = Boolean(request.value);
+        tech.active = asBoolean_(request.value);
         if (tech.active) tech.cardVisible = true;
         logAction = tech.active ? 'Technician activated' : 'Technician deactivated';
         logType = 'roster';
