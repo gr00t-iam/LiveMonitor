@@ -13,6 +13,10 @@ const TAB = Object.freeze({
 const ADMIN_USERS_PROPERTY = 'ADMIN_USERS';
 const PROTECTED_ADMIN_NAMES = Object.freeze(['Jeremy Miller', 'David Lowe']);
 const PRESENCE_TIMEOUT_MS = 90 * 1000;
+const SCHEDULE_API_URL = 'https://script.google.com/macros/s/AKfycbzQC6eWLLN_mRjO4jgUwCwDrMGe3Gy1fYzunf67gnCejfDfsd6nqgdt11wryl_ZNo-RCw/exec';
+const SCHEDULE_CACHE_KEY = 'weekly-schedule-v1';
+const SCHEDULE_SYNC_THROTTLE_KEY = 'weekly-schedule-sync-v1';
+const SCHEDULE_CACHE_SECONDS = 120;
 
 const TECH_HEADERS = Object.freeze([
   'Technician ID', 'Name', 'Active', 'Card Visible', 'Status',
@@ -32,11 +36,13 @@ function getInitialState(operator) {
   ensureTechnicianSchema_();
   ensureSettingsSchema_();
   recordPresence_(operator);
+  synchronizeScheduledTechnicians_();
   return buildState_();
 }
 
 function getSharedState(operator) {
   recordPresence_(operator);
+  synchronizeScheduledTechnicians_();
   return buildState_();
 }
 
@@ -520,6 +526,8 @@ function runDailyReset(actor) {
 function buildState_() {
   const settings = readSettings_();
   const technicians = readTechnicians_();
+  const weeklySchedule = readWeeklySchedule_(settings.timezone);
+  const assignmentsByTech = scheduleAssignmentsByTechnician_(weeklySchedule);
   const activityLog = readRecentActivity_(250);
   const notesByTech = {};
   activityLog.forEach(function (entry) {
@@ -532,15 +540,183 @@ function buildState_() {
   technicians.forEach(function (tech) {
     normalizeUpdateClock_(tech, settings);
     tech.noteEntries = notesByTech[tech.id] || [];
+    const assignment = assignmentsByTech[normalizePersonName_(tech.name)] || null;
+    tech.scheduledSite = assignment ? assignment.siteNumber : '';
+    tech.scheduledDate = assignment ? assignment.dateKey : '';
+    tech.scheduleStatus = assignment ? assignment.status : '';
   });
   return {
     serverNowUtc: new Date().toISOString(),
     technicians: technicians,
+    weeklySchedule: weeklySchedule,
     activityLog: activityLog,
     settings: settings,
     commandStaff: readStaff_(),
     viewer: currentViewer_()
   };
+}
+
+
+function readWeeklySchedule_(timezone) {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(SCHEDULE_CACHE_KEY);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (error) {}
+  }
+  try {
+    const response = UrlFetchApp.fetch(SCHEDULE_API_URL, {
+      method: 'get',
+      followRedirects: true,
+      muteHttpExceptions: true
+    });
+    const statusCode = response.getResponseCode();
+    if (statusCode < 200 || statusCode >= 300) throw new Error('Schedule service returned HTTP ' + statusCode);
+    const payload = JSON.parse(response.getContentText());
+    const rows = payload && Array.isArray(payload.schedule) ? payload.schedule : [];
+    const bounds = currentWeekBounds_(timezone);
+    const schedule = rows.map(normalizeScheduleRow_).filter(function (row) {
+      return row.dateKey && row.dateKey >= bounds.monday && row.dateKey < bounds.nextMonday;
+    }).sort(function (a, b) {
+      return a.dateKey.localeCompare(b.dateKey) || a.technician.localeCompare(b.technician);
+    });
+    cache.put(SCHEDULE_CACHE_KEY, JSON.stringify(schedule), SCHEDULE_CACHE_SECONDS);
+    return schedule;
+  } catch (error) {
+    console.error('Schedule sync failed: ' + error.message);
+    cache.put(SCHEDULE_CACHE_KEY, '[]', 60);
+    return [];
+  }
+}
+
+function normalizeScheduleRow_(row) {
+  row = row || {};
+  return {
+    dateKey: scheduleDateKey_(row.date),
+    siteNumber: cleanText_(row.siteNumber, 40),
+    technician: cleanText_(row.technician, 100),
+    status: cleanText_(row.status || 'Scheduled', 60)
+  };
+}
+
+function scheduleDateKey_(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return match[1] + '-' + match[2] + '-' + match[3];
+  match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (match) return match[3] + '-' + String(match[1]).padStart(2, '0') + '-' + String(match[2]).padStart(2, '0');
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? '' : Utilities.formatDate(parsed, 'America/Chicago', 'yyyy-MM-dd');
+}
+
+function currentWeekBounds_(timezone) {
+  const today = Utilities.formatDate(new Date(), timezone || 'America/Chicago', 'yyyy-MM-dd');
+  const parts = today.split('-').map(Number);
+  const anchor = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12));
+  const day = anchor.getUTCDay();
+  const daysFromMonday = day === 0 ? 6 : day - 1;
+  const mondayDate = new Date(anchor.getTime() - daysFromMonday * 86400000);
+  const nextMondayDate = new Date(mondayDate.getTime() + 7 * 86400000);
+  return {
+    today: today,
+    monday: Utilities.formatDate(mondayDate, 'UTC', 'yyyy-MM-dd'),
+    nextMonday: Utilities.formatDate(nextMondayDate, 'UTC', 'yyyy-MM-dd')
+  };
+}
+
+function normalizePersonName_(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function scheduleAssignmentsByTechnician_(schedule) {
+  const assignments = {};
+  (schedule || []).forEach(function (row) {
+    const key = normalizePersonName_(row.technician);
+    if (!key) return;
+    const current = assignments[key];
+    if (!current || (isScheduleComplete_(current.status) && !isScheduleComplete_(row.status))) assignments[key] = row;
+  });
+  return assignments;
+}
+
+function isScheduleComplete_(status) {
+  return /^(complete|completed|site complete|closed|done)$/i.test(String(status || '').trim());
+}
+
+function synchronizeScheduledTechnicians_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get(SCHEDULE_SYNC_THROTTLE_KEY)) return;
+  cache.put(SCHEDULE_SYNC_THROTTLE_KEY, '1', 45);
+  const settings = readSettings_();
+  const schedule = readWeeklySchedule_(settings.timezone);
+  if (!schedule.length) return;
+  const assignments = scheduleAssignmentsByTechnician_(schedule);
+  const today = currentWeekBounds_(settings.timezone).today;
+
+  return withWriteLock_(function () {
+    const sheet = getSheet_(TAB.TECHNICIANS);
+    const values = sheet.getDataRange().getValues();
+    const properties = PropertiesService.getScriptProperties();
+    let changed = false;
+    for (let i = 1; i < values.length; i += 1) {
+      if (!values[i][0]) continue;
+      const tech = rowToTechnician_(values[i]);
+      if (tech.archived) continue;
+      const assignment = assignments[normalizePersonName_(tech.name)];
+      if (!assignment || !assignment.dateKey || assignment.dateKey > today) continue;
+      const assignmentKey = assignment.dateKey + '|' + assignment.siteNumber;
+      const propertyKey = 'SCHEDULE_ACTIVATED_' + tech.id;
+      const previousKey = properties.getProperty(propertyKey) || '';
+
+      if (isScheduleComplete_(assignment.status)) {
+        if (previousKey !== assignmentKey) properties.setProperty(propertyKey, assignmentKey);
+        if (tech.status === 'Site Complete' && !tech.active && !tech.cardVisible) continue;
+        tech.active = false;
+        tech.cardVisible = false;
+        tech.status = 'Site Complete';
+        tech.shiftStart = '';
+        tech.lastUpdate = '';
+        tech.updatePausedMs = 0;
+        tech.updateDue = '';
+        tech.breakStart = '';
+        tech.shiftEnded = true;
+        tech.activeIssue = '';
+        tech.updatedAt = new Date().toISOString();
+        tech.updatedBy = 'Schedule Sync';
+        tech.version += 1;
+        values[i] = technicianToRow_(tech);
+        appendLog_(tech, 'Site Completed from schedule', 'site-complete', 'Site ' + assignment.siteNumber, 'Schedule Sync', tech.updatedAt);
+        changed = true;
+        continue;
+      }
+
+      if (previousKey === assignmentKey) continue;
+      properties.setProperty(propertyKey, assignmentKey);
+      const shouldOpen = !tech.active || !tech.cardVisible || tech.status === 'Site Complete' || tech.status === 'Off Shift';
+      if (!shouldOpen) continue;
+      tech.active = true;
+      tech.cardVisible = true;
+      tech.archived = false;
+      tech.status = 'Not Started';
+      tech.shiftStart = '';
+      tech.lastUpdate = '';
+      tech.updatePausedMs = 0;
+      tech.updateDue = '';
+      tech.breakStart = '';
+      tech.shiftEnded = false;
+      tech.activeIssue = '';
+      tech.updatedAt = new Date().toISOString();
+      tech.updatedBy = 'Schedule Sync';
+      tech.version += 1;
+      values[i] = technicianToRow_(tech);
+      appendLog_(tech, 'Card opened from weekly schedule', 'schedule', 'Site ' + assignment.siteNumber, 'Schedule Sync', tech.updatedAt);
+      changed = true;
+    }
+    if (changed) {
+      sheet.getRange(2, 1, values.length - 1, TECH_HEADERS.length).setValues(values.slice(1));
+      SpreadsheetApp.flush();
+    }
+  });
 }
 
 function readSettings_() {
