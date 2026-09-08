@@ -14,7 +14,7 @@ const ADMIN_USERS_PROPERTY = 'ADMIN_USERS';
 const PROTECTED_ADMIN_NAMES = Object.freeze(['Jeremy Miller', 'David Lowe']);
 const PRESENCE_TIMEOUT_MS = 90 * 1000;
 const SCHEDULE_API_URL = 'https://script.google.com/macros/s/AKfycbzQC6eWLLN_mRjO4jgUwCwDrMGe3Gy1fYzunf67gnCejfDfsd6nqgdt11wryl_ZNo-RCw/exec';
-const SCHEDULE_CACHE_KEY = 'weekly-schedule-v1';
+const SCHEDULE_CACHE_KEY = 'active-schedule-assignments-v2';
 const SCHEDULE_SYNC_THROTTLE_KEY = 'weekly-schedule-sync-v1';
 const SCHEDULE_CACHE_SECONDS = 120;
 
@@ -574,11 +574,10 @@ function readWeeklySchedule_(timezone) {
     const payload = JSON.parse(response.getContentText());
     const rows = payload && Array.isArray(payload.schedule) ? payload.schedule : [];
     const bounds = currentWeekBounds_(timezone);
-    const schedule = rows.map(normalizeScheduleRow_).filter(function (row) {
-      return row.dateKey && row.dateKey >= bounds.monday && row.dateKey < bounds.nextMonday;
-    }).sort(function (a, b) {
-      return a.dateKey.localeCompare(b.dateKey) || a.technician.localeCompare(b.technician);
+    const normalizedRows = rows.map(normalizeScheduleRow_).filter(function (row) {
+      return row.dateKey && row.technician && row.siteNumber;
     });
+    const schedule = selectRelevantScheduleAssignments_(normalizedRows, bounds);
     cache.put(SCHEDULE_CACHE_KEY, JSON.stringify(schedule), SCHEDULE_CACHE_SECONDS);
     return schedule;
   } catch (error) {
@@ -625,7 +624,32 @@ function currentWeekBounds_(timezone) {
 }
 
 function normalizePersonName_(value) {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return String(value || '').trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/).filter(Boolean).sort().join(' ');
+}
+
+function selectRelevantScheduleAssignments_(rows, bounds) {
+  const rowsByTechnician = {};
+  (rows || []).forEach(function (row) {
+    const key = normalizePersonName_(row.technician);
+    if (!key) return;
+    if (!rowsByTechnician[key]) rowsByTechnician[key] = [];
+    rowsByTechnician[key].push(row);
+  });
+
+  return Object.keys(rowsByTechnician).map(function (key) {
+    const technicianRows = rowsByTechnician[key].slice().sort(function (a, b) {
+      return a.dateKey.localeCompare(b.dateKey);
+    });
+    const started = technicianRows.filter(function (row) { return row.dateKey <= bounds.today; });
+    if (started.length) return started[started.length - 1];
+    return technicianRows.find(function (row) {
+      return row.dateKey > bounds.today && row.dateKey < bounds.nextMonday;
+    }) || null;
+  }).filter(Boolean).sort(function (a, b) {
+    return a.dateKey.localeCompare(b.dateKey) || a.technician.localeCompare(b.technician);
+  });
 }
 
 function scheduleAssignmentsByTechnician_(schedule) {
